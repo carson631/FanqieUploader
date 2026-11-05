@@ -2,7 +2,9 @@
 
 把「每章一个 txt」的稿子批量传上**番茄小说网作家后台**，自动建章、自动纠错、自动全面检测、按规则定时发布。
 
-Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带运行库）。
+Qt 6 Widgets 桌面程序，Windows 便携版解压即用（已带 Qt 运行库）。
+
+**[⬇ 下载最新版](https://github.com/carson631/FanqieUploader/releases/latest)**　·　[更新记录](docs/RELEASE_NOTES.md)
 
 ![界面](docs/screenshot-main.png)
 
@@ -142,8 +144,7 @@ FanqieUploader/
 ├─ tools/test.html       headless 逻辑自测（50 项）
 ├─ tools/cdp_probe.py    对真实后台做一次勘察（注入 site.js + 读书名/分卷）
 ├─ tools/cdp_tabtest/    多标签接管逻辑的 C++ 冒烟测试
-├─ tools/followtest/     真机版接管测试（点新建章节→接住新标签→判定编辑页）
-└─ dist/                 便携版（自带 Qt 运行库）
+└─ tools/followtest/     真机版接管测试（点新建章节→接住新标签→判定编辑页）
 ```
 
 ## 免责
