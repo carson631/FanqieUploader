@@ -83,6 +83,7 @@ private:
     QSpinBox  *m_fromSpin = nullptr;
     QSpinBox  *m_toSpin = nullptr;
     QLabel    *m_rangeInfo = nullptr;
+    QCheckBox *m_titleWithNo = nullptr;   // 标题带章号：27归队 / 归队
     QDateEdit *m_dateEdit = nullptr;
     QSpinBox  *m_perDay = nullptr;
     QTimeEdit *m_timeEdit = nullptr;

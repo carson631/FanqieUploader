@@ -271,7 +271,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
                                              QStringLiteral("MMM d yyyy"));
     appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
-                  .arg(QStringLiteral("1.0.4"),
+                  .arg(QStringLiteral("1.0.5"),
                        buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
                                           : QString::fromLatin1(__DATE__).simplified(),
                        QString::fromLatin1(__TIME__)));
@@ -342,7 +342,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.4"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.5"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);
@@ -461,31 +461,38 @@ void MainWindow::buildUi()
     rowRange->addStretch(1);
     f3->addLayout(rowRange, 0, 1, 1, 3);
 
-    f3->addWidget(new QLabel(QStringLiteral("首章日期")), 1, 0);
+    // 标题格式：番茄后台这本书历来是「第27章 27归队」这种带章号的写法
+    m_titleWithNo = new QCheckBox(QStringLiteral("标题带章号（27归队）"));
+    m_titleWithNo->setChecked(true);
+    m_titleWithNo->setToolTip(QStringLiteral(
+        "勾上：标题 = 文件名「27归队」；不勾：标题 = 去掉章号的「归队」。"));
+    f3->addWidget(m_titleWithNo, 1, 1, 1, 3);
+
+    f3->addWidget(new QLabel(QStringLiteral("首章日期")), 2, 0);
     m_dateEdit = new QDateEdit;
     m_dateEdit->setCalendarPopup(true);
     m_dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
     m_dateEdit->setDate(QDate::currentDate().addDays(1));
-    f3->addWidget(m_dateEdit, 1, 1);
-    f3->addWidget(new QLabel(QStringLiteral("每天")), 1, 2);
+    f3->addWidget(m_dateEdit, 2, 1);
+    f3->addWidget(new QLabel(QStringLiteral("每天")), 2, 2);
     m_perDay = new QSpinBox;
     m_perDay->setRange(1, 20);
     m_perDay->setValue(3);
     m_perDay->setSuffix(QStringLiteral(" 章"));
     m_perDay->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    f3->addWidget(m_perDay, 1, 3);
-    f3->addWidget(new QLabel(QStringLiteral("首发时间")), 2, 0);
+    f3->addWidget(m_perDay, 2, 3);
+    f3->addWidget(new QLabel(QStringLiteral("首发时间")), 3, 0);
     m_timeEdit = new QTimeEdit(QTime(19, 0));
     m_timeEdit->setDisplayFormat(QStringLiteral("HH:mm"));
     m_timeEdit->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    f3->addWidget(m_timeEdit, 2, 1);
-    f3->addWidget(new QLabel(QStringLiteral("间隔")), 2, 2);
+    f3->addWidget(m_timeEdit, 3, 1);
+    f3->addWidget(new QLabel(QStringLiteral("间隔")), 3, 2);
     m_interval = new QSpinBox;
     m_interval->setRange(0, 120);
     m_interval->setValue(5);
     m_interval->setSuffix(QStringLiteral(" 分钟"));
     m_interval->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    f3->addWidget(m_interval, 2, 3);
+    f3->addWidget(m_interval, 3, 3);
     f3->setColumnStretch(1, 1);
     f3->setColumnStretch(3, 1);
     c3->addLayout(f3);
@@ -505,6 +512,7 @@ void MainWindow::buildUi()
             loadChapters(d);
         }
     });
+    connect(m_titleWithNo, &QCheckBox::toggled, this, [this](bool) { applyRange(false); });
     connect(m_fromSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { applyRange(false); });
     connect(m_toSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { applyRange(false); });
     connect(m_perDay, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { reschedule(); });
@@ -801,6 +809,7 @@ void MainWindow::loadChapters(const QString &dirPath)
         const QString base = fi.completeBaseName();
         UploadWorker::Job job;
         job.file = fi.absoluteFilePath();
+        job.base = base;                 // 「27归队」——标题带章号时用它
         auto m = kNum.match(base);
         if (m.hasMatch()) {
             job.no = m.captured(1).toInt();
@@ -863,10 +872,15 @@ void MainWindow::applyRange(bool logIt)
     const int lo = qMin(a, b);
     const int hi = qMax(a, b);
 
+    const bool withNo = !m_titleWithNo || m_titleWithNo->isChecked();
     m_jobs.clear();
     for (const auto &j : m_allJobs) {
-        if (j.no >= lo && j.no <= hi)
-            m_jobs.append(j);
+        if (j.no < lo || j.no > hi)
+            continue;
+        UploadWorker::Job job = j;
+        if (withNo && !j.base.isEmpty())
+            job.title = j.base;          // 27归队
+        m_jobs.append(job);
     }
 
     if (m_allJobs.isEmpty()) {
@@ -1059,6 +1073,7 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("perDay"), m_perDay->value());
     s.setValue(QStringLiteral("time"), m_timeEdit->time());
     s.setValue(QStringLiteral("interval"), m_interval->value());
+    s.setValue(QStringLiteral("titleWithNo"), m_titleWithNo->isChecked());
     s.setValue(QStringLiteral("from"), m_fromSpin->value());
     s.setValue(QStringLiteral("to"), m_toSpin->value());
     s.endGroup();
@@ -1085,6 +1100,10 @@ void MainWindow::loadSettings()
     if (t.isValid())
         m_timeEdit->setTime(t);
     m_interval->setValue(s.value(QStringLiteral("interval"), 5).toInt());
+    {
+        const QSignalBlocker b(m_titleWithNo);
+        m_titleWithNo->setChecked(s.value(QStringLiteral("titleWithNo"), true).toBool());
+    }
     s.endGroup();
 
     if (!dir.isEmpty() && QDir(dir).exists()) {

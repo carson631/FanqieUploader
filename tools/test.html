@@ -362,6 +362,38 @@ async function run() {
   const pv2 = await __fq.pickVolume('第一卷：铁誓之约');
   check('P3 展开状态下能直接点中目标卷', pv2.ok === true && pv2.picked === '第一卷：铁誓之约', JSON.stringify(pv2));
 
+  /* ---------- Q. 番茄真实编辑页头部：章号框没有 placeholder ---------- */
+  stage(`
+    <div class="serial-editor-title font-size-16">
+      <div class="serial-editor-title-inner">
+        <div class="serial-editor-title-left"><span>第</span>
+          <span class="left-input"><input type="text" class="serial-input byte-input" id="noReal"></span>
+          <span>章</span></div>
+        <div class="serial-editor-title-right">
+          <div class="serial-editor-input-hint input">
+            <input placeholder="请输入标题" class="serial-input serial-editor-input-hint-area" id="tiReal"></div>
+        </div>
+      </div>
+    </div>
+    <div id="editor" contenteditable="true"></div>
+  `);
+  await sleep(60);
+  const fcReal = __fq.fillChapter(27, '27归队');
+  check('Q1 没有 placeholder 的章号框也能找到', document.querySelector('#noReal').value === '27',
+        document.querySelector('#noReal').value);
+  check('Q2 标题写进「请输入标题」那个框', document.querySelector('#tiReal').value === '27归队',
+        document.querySelector('#tiReal').value);
+  const fsReal = __fq.formState();
+  check('Q3 formState 能读回章号/标题', fsReal.no === '27' && fsReal.title === '27归队',
+        JSON.stringify(fsReal));
+  const rd1 = __fq.editReady();
+  const rd2 = __fq.editStable();
+  await sleep(120);
+  const rd3 = __fq.editStable();
+  check('Q4 editReady 认识真实的章号/标题框', rd1.ready === true && !!rd1.sig, JSON.stringify(rd1));
+  check('Q5 连续两次同一批元素才算稳定',
+        rd3.ready === true && rd3.stableMs >= 100, JSON.stringify(rd3));
+
   const fails = results.filter(x => x.startsWith('FAIL'));
   document.getElementById('out').textContent =
     results.join('\n') + '\n\n合计 ' + results.length + ' 项，失败 ' + fails.length + ' 项';

@@ -498,35 +498,124 @@
 
   // ---------- 新建章：填章号 / 标题 / 正文 ----------
 
-  FQ.fillChapter = function (no, title) {
-    const res = { ok: false, no: null, title: null, inputs: inputs() };
-
-    // 章号输入框：占位符含「章」→ 或被「第」「章」夹住的 input → 退化为标题框前面那个
+  // 番茄编辑页头部实测结构：
+  //   .serial-editor-title
+  //     .serial-editor-title-left  → <span>第</span><span class="left-input"><input></span><span>章</span>
+  //     .serial-editor-title-right → <input placeholder="请输入标题">
+  // 章号框没有 placeholder，只能按结构找；标题框有 placeholder，可作兜底锚点。
+  function chapterFields() {
+    let noEl = null;
+    let titleEl = null;
+    const row = document.querySelector('.serial-editor-title');
+    if (row) {
+      noEl = row.querySelector('.serial-editor-title-left input');
+      titleEl =
+        row.querySelector('input[placeholder*="标题"]') ||
+        row.querySelector('.serial-editor-title-right input');
+    }
     const all = [...document.querySelectorAll('input')].filter((e) => vis(e));
-    let noEl = all.find((e) => /章/.test(e.getAttribute('placeholder') || ''));
-    if (!noEl) {
-      noEl = all.find((e) => {
-        const p = e.parentElement;
-        const pt = p ? T(p) + ' ' + T(p.parentElement || p) : '';
-        return /第.*章/.test(pt) && !/标题/.test(e.getAttribute('placeholder') || '');
-      });
+    if (!titleEl) {
+      titleEl = all.find((e) => /标题/.test(e.getAttribute('placeholder') || '')) || null;
     }
-    if (noEl && no != null) {
-      setValue(noEl, String(no));
-      res.no = noEl.value;
+    if (!noEl && titleEl) {
+      // 退化成「标题框前面那个可见 input」
+      const i = all.indexOf(titleEl);
+      for (let k = i - 1; k >= 0; k--) {
+        if (/选择|搜索|查询/.test(all[k].getAttribute('placeholder') || '')) continue;
+        noEl = all[k];
+        break;
+      }
     }
+    if (noEl === titleEl) noEl = null;
+    return { noEl: noEl || null, titleEl: titleEl || null };
+  }
 
-    const titleEl = [...document.querySelectorAll('input,textarea')].find(
-      (e) => vis(e) && /标题/.test(e.getAttribute('placeholder') || '')
-    );
-    if (titleEl && title != null) {
-      setValue(titleEl, title);
-      res.title = titleEl.value;
+  // 编辑页是否真的挂好了：两个输入框 + 正文编辑器都在。
+  // 番茄是 SPA，会先渲染一版骨架再换成真编辑器 —— 太早写进去会被重建冲掉，
+  // 表现为「日志说写好了，页面上却是空的」。
+  let readyStamp = 0;
+  FQ.editReady = function () {
+    try {
+      const f = chapterFields();
+      const body = editorEl();
+      if (!f.noEl || !f.titleEl || !body) return { ready: false, why: 'fields-missing' };
+      if (!f.noEl.isConnected || !f.titleEl.isConnected) return { ready: false, why: 'detached' };
+      if (!f.noEl.__fqStamp) f.noEl.__fqStamp = ++readyStamp;
+      if (!f.titleEl.__fqStamp) f.titleEl.__fqStamp = ++readyStamp;
+      return {
+        ready: true,
+        sig: f.noEl.__fqStamp + ':' + f.titleEl.__fqStamp,
+        no: f.noEl.value,
+        title: f.titleEl.value,
+      };
+    } catch (e) {
+      return { ready: false, why: String(e).slice(0, 80) };
     }
-    if (noEl) noEl.dispatchEvent(new Event('blur', { bubbles: true }));
-    if (titleEl) titleEl.dispatchEvent(new Event('blur', { bubbles: true }));
-    res.ok = !!titleEl || !!noEl;
-    if (!res.ok) res.buttons = buttons();
+  };
+
+  // 就绪且「连续两次探测是同一批元素」→ 才算稳定
+  let stableSig = '';
+  let stableAt = 0;
+  FQ.editStable = function (needMs) {
+    const r = FQ.editReady();
+    if (!r.ready) {
+      stableSig = '';
+      stableAt = 0;
+      return r;
+    }
+    const now = Date.now();
+    if (r.sig !== stableSig) {
+      stableSig = r.sig;
+      stableAt = now;
+      return { ready: false, why: 'settling', sig: r.sig };
+    }
+    return { ready: true, sig: r.sig, stableMs: now - stableAt, no: r.no, title: r.title,
+             needMs: needMs || 0 };
+  };
+
+  // 回读页面上的章号 / 标题 / 正文字数（确认真的写进去了、且没被重渲染冲掉）
+  FQ.formState = function () {
+    try {
+      const f = chapterFields();
+      const body = editorEl();
+      return {
+        no: f.noEl ? f.noEl.value : null,
+        title: f.titleEl ? f.titleEl.value : null,
+        chars: body ? norm(body.innerText || body.value || '').length : 0,
+        sig: f.noEl && f.titleEl
+          ? (f.noEl.__fqStamp || 0) + ':' + (f.titleEl.__fqStamp || 0)
+          : '',
+      };
+    } catch (e) {
+      return { no: null, title: null, chars: 0, sig: '' };
+    }
+  };
+
+  FQ.fillChapter = function (no, title) {
+    const res = { ok: false, no: null, title: null, sig: '', inputs: [] };
+    try {
+      const f = chapterFields();
+      res.inputs = inputs();
+      if (!f.noEl && !f.titleEl) {
+        res.why = 'no-fields';
+        res.buttons = buttons();
+        return res;
+      }
+      if (f.noEl && no != null) {
+        setValue(f.noEl, String(no));
+        res.no = f.noEl.value;
+      }
+      if (f.titleEl && title != null) {
+        setValue(f.titleEl, title);
+        res.title = f.titleEl.value;
+      }
+      res.sig = f.noEl && f.titleEl
+        ? (f.noEl.__fqStamp || 0) + ':' + (f.titleEl.__fqStamp || 0)
+        : '';
+      res.ok = res.no !== null || res.title !== null;
+    } catch (e) {
+      res.why = String(e).slice(0, 120);
+    }
     return res;
   };
 
@@ -589,6 +678,21 @@
       title: titleEl ? titleEl.value : '',
       url: location.href,
     };
+  };
+
+  // 番茄的校验失败提示条（例：「标题至少输入5个字，章节序号只支持阿拉伯数字」
+  // 「正文至少输入1000字」）。等发布设置时看到它就不该继续干等。
+  FQ.tipText = function () {
+    try {
+      const list = [...document.querySelectorAll('div,span,p')].filter((e) => {
+        const t = (e.innerText || '').trim();
+        if (t.length < 4 || t.length > 60) return false;
+        return /(至少输入|只支持|不能为空|不得超过)/.test(t) && vis(e);
+      });
+      return list.length ? (list[0].innerText || '').trim() : '';
+    } catch (e) {
+      return '';
+    }
   };
 
   // ---------- 各种「下一步 / 弹窗」 ----------

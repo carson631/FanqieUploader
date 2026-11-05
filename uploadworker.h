@@ -22,7 +22,8 @@ class UploadWorker : public QObject
 public:
     struct Job {
         int     no = 0;
-        QString title;
+        QString title;     // 纯标题（去掉开头的章号）
+        QString base;      // 完整文件名（不含扩展名），如「27归队」
         QString body;
         QString file;
         QDate   date;
@@ -56,7 +57,11 @@ private:
         S_OpenBook,
         S_Volume,
         S_NewChapter,
-        S_Fill,
+        S_Ready,          // 等编辑页真正挂好（骨架→真编辑器）
+        S_Fill,           // 只写章号 / 标题
+        S_Body,           // 写正文
+        S_Check,          // 回读核对，不对就重写
+
         S_Next,
         S_Pump,
         S_Publish,
@@ -99,7 +104,10 @@ private:
     int    m_fail = 0;
     int    m_ticks = 0;
     int    m_retry = 0;
-    int    m_fillTry = 0;            // 同一步填表重试次数（React 挂载慢时用）
+    int    m_fillTry = 0;            // 章号/标题重写次数（React 挂载慢时用）
+    int    m_bodyTry = 0;            // 正文重写次数
+    bool   m_bodyOk = false;         // 本章正文已确认写入
+    int    m_wantChars = 0;          // 本章正文的期望字数（去空白）
     int    m_volFix = 0;             // 分卷自动纠正次数，防止来回打转
     int    m_switchRetry = 0;        // 起步时「切回章节管理标签」的尝试次数
     bool   m_stepped = false;        // 本章是否已点过「下一步」

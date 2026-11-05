@@ -331,11 +331,20 @@ void UploadWorker::beginChapter(int index)
     m_cur = m_jobs.at(index);
     m_retry = 0;
     m_fillTry = 0;
+    m_bodyTry = 0;
+    m_bodyOk = false;
     m_volFix = 0;
     m_ticks = 0;
     m_switchRetry = 0;
     m_stepped = false;
     m_filled = false;
+    // 页面统计的「正文字数」是去掉所有空白的，这里按同样的口径算期望值
+    m_wantChars = 0;
+    for (const QChar &c : m_cur.body) {
+        if (c.isSpace() || c == QChar(0x3000) || c == QChar(0x00A0))
+            continue;
+        ++m_wantChars;
+    }
     emit log(QStringLiteral("── 第 %1 章《%2》%3 字，定时 %4 %5")
                  .arg(m_cur.no)
                  .arg(m_cur.title)
@@ -581,22 +590,36 @@ void UploadWorker::gotoStep(Step s)
                               } else {
                                   emit log(QStringLiteral("  ⚠ %1（继续在原标签里等编辑页）").arg(whyT));
                               }
-                              pollJs(QStringLiteral("__fq.stage()"),
-                                     [](const QJsonValue &v3) {
-                                         return v3.toObject().value(QStringLiteral("editor")).toBool();
-                                     },
-                                     400, 40, [this, gen](bool ok3, const QJsonValue &) {
-                                         if (gen != m_gen || !m_running)
-                                             return;
-                                         if (ok3)
-                                             gotoStep(S_Fill);
-                                         else
-                                             failChapter(QStringLiteral("新建章编辑页没出来（标题框找不到）"));
-                                     });
+                              gotoStep(S_Ready);
                           });
                       });
                   });
               });
+        break;
+    }
+
+    case S_Ready: {
+        // 番茄编辑页是 SPA：先出一版骨架，再换成真编辑器。太早写进去会被重建冲掉，
+        // 表现就是「日志说写好了，页面上是空的，点下一步报标题不能为空」。
+        // 这里要求：章号框 + 标题框 + 正文编辑器都在，且连续 500ms 指向同一批元素。
+        pollJs(QStringLiteral("__fq.editStable()"),
+               [](const QJsonValue &v) {
+                   const QJsonObject o = v.toObject();
+                   return o.value(QStringLiteral("ready")).toBool()
+                          && o.value(QStringLiteral("stableMs")).toInt() >= 500;
+               },
+               320, 40, [this, gen](bool ok, const QJsonValue &last) {
+                   if (gen != m_gen || !m_running)
+                       return;
+                   if (ok) {
+                       emit log(QStringLiteral("  编辑页已就绪"));
+                       gotoStep(S_Fill);
+                   } else {
+                       const QJsonObject o = last.toObject();
+                       failChapter(QStringLiteral("编辑页没就绪（%1）")
+                                       .arg(o.value(QStringLiteral("why")).toString()));
+                   }
+               });
         break;
     }
 
@@ -620,6 +643,14 @@ void UploadWorker::gotoStep(Step s)
                               io.value(QStringLiteral("type")).toString(),
                               io.value(QStringLiteral("ph")).toString());
                       }
+                      if (++m_fillTry <= 4) {
+                          emit log(QStringLiteral("  填表没成功（%1），重试 %2/4")
+                                       .arg(ok ? o.value(QStringLiteral("why")).toString()
+                                               : v.toString())
+                                       .arg(m_fillTry));
+                          scheduleNext(S_Fill, 700);
+                          return;
+                      }
                       failChapter(QStringLiteral("找不到章号/标题输入框。页面输入框：%1")
                                       .arg(ins.join(QStringLiteral(" | "))));
                       return;
@@ -627,49 +658,112 @@ void UploadWorker::gotoStep(Step s)
                   emit log(QStringLiteral("  章号=%1　标题=%2")
                                .arg(o.value(QStringLiteral("no")).toVariant().toString(),
                                     o.value(QStringLiteral("title")).toString()));
-                  // 编辑页 React 挂载慢时，写进去会被重渲染清掉 —— 回读对不上就再写一次
-                  const QString gotTitle = o.value(QStringLiteral("title")).toString().trimmed();
-                  if (gotTitle != m_cur.title.trimmed() && m_fillTry < 3) {
-                      ++m_fillTry;
-                      emit log(QStringLiteral("  标题没写进去（页面回读「%1」），重试 %2/3")
-                                   .arg(gotTitle).arg(m_fillTry));
-                      scheduleNext(S_Fill, 900);
+                  // 立刻回读不可靠（重渲染会冲掉），等 650ms 再由 S_Check 核对
+                  scheduleNext(S_Check, 650);
+              });
+        break;
+    }
+
+    case S_Body: {
+        runJs(QStringLiteral("__fq.fillBody(%1)").arg(jsStr(m_cur.body)),
+              [this, gen](bool ok, const QJsonValue &v) {
+                  if (gen != m_gen || !m_running)
+                      return;
+                  const QJsonObject r = v.toObject();
+                  if (!ok || !r.value(QStringLiteral("ok")).toBool()) {
+                      if (++m_bodyTry <= 3) {
+                          emit log(QStringLiteral("  正文还没写进去，重试 %1/3").arg(m_bodyTry));
+                          scheduleNext(S_Body, 800);
+                          return;
+                      }
+                      failChapter(QStringLiteral("正文写不进去（找不到编辑器）"));
                       return;
                   }
-
-                  runJs(QStringLiteral("__fq.fillBody(%1)").arg(jsStr(m_cur.body)),
-                        [this, gen](bool ok2, const QJsonValue &v2) {
-                            if (gen != m_gen || !m_running)
-                                return;
-                            const QJsonObject r = v2.toObject();
-                            if (!ok2 || !r.value(QStringLiteral("ok")).toBool()) {
-                                failChapter(QStringLiteral("正文写不进去（找不到编辑器）"));
-                                return;
-                            }
-                            const int got = r.value(QStringLiteral("chars")).toInt();
-                            const int want = r.value(QStringLiteral("want")).toInt();
-                            emit log(QStringLiteral("  正文写入 %1/%2 字（%3）")
-                                         .arg(got)
-                                         .arg(want)
-                                         .arg(r.value(QStringLiteral("used")).toString()));
-                            if (want > 0 && got < static_cast<int>(want * 0.9)) {
-                                failChapter(QStringLiteral("正文写入后字数对不上（%1/%2），疑似被编辑器截断")
-                                                .arg(got).arg(want));
-                                return;
-                            }
-                            m_filled = true;      // 之后出任何岔子都要先存草稿
-                            if (qEnvironmentVariableIsSet("CU_DRY")) {
-                                emit log(QStringLiteral("CU_DRY：填表完成，测试到此为止（未点下一步、未发布）"));
-                                if (!m_editorTarget.isEmpty())
-                                    m_cdp->closeTarget(m_editorTarget);
-                                m_running = false;
-                                ++m_gen;
-                                emit finished(m_ok, m_fail);
-                                return;
-                            }
-                            scheduleNext(S_Next, 500);
-                        });
+                  const int got = r.value(QStringLiteral("chars")).toInt();
+                  const int want = r.value(QStringLiteral("want")).toInt();
+                  emit log(QStringLiteral("  正文写入 %1/%2 字（%3）")
+                               .arg(got)
+                               .arg(want)
+                               .arg(r.value(QStringLiteral("used")).toString()));
+                  if (want > 0 && got < static_cast<int>(want * 0.9)) {
+                      if (++m_bodyTry <= 3) {
+                          emit log(QStringLiteral("  字数偏少，重写 %1/3").arg(m_bodyTry));
+                          scheduleNext(S_Body, 800);
+                          return;
+                      }
+                      failChapter(QStringLiteral("正文写入后字数对不上（%1/%2），疑似被编辑器截断")
+                                      .arg(got)
+                                      .arg(want));
+                      return;
+                  }
+                  m_bodyTry = 0;
+                  m_bodyOk = true;
+                  m_filled = true;      // 之后出任何岔子都要先存草稿
+                  if (qEnvironmentVariableIsSet("CU_DRY")) {
+                      emit log(QStringLiteral("CU_DRY：填表完成，测试到此为止（未点下一步、未发布）"));
+                      if (!m_editorTarget.isEmpty())
+                          m_cdp->closeTarget(m_editorTarget);
+                      m_running = false;
+                      ++m_gen;
+                      emit finished(m_ok, m_fail);
+                      return;
+                  }
+                  scheduleNext(S_Check, 500);
               });
+        break;
+    }
+
+    case S_Check: {
+        // 回读页面：章号/标题/正文都还在，才允许点「下一步」。
+        runJs(QStringLiteral("__fq.formState()"), [this, gen](bool ok, const QJsonValue &v) {
+            if (gen != m_gen || !m_running)
+                return;
+            const QJsonObject o = v.toObject();
+            const QString gotNo = ok ? o.value(QStringLiteral("no")).toString().trimmed() : QString();
+            const QString gotTitle =
+                ok ? o.value(QStringLiteral("title")).toString().trimmed() : QString();
+            const int chars = ok ? o.value(QStringLiteral("chars")).toInt() : 0;
+            const bool noOk = (gotNo == QString::number(m_cur.no));
+            const bool titleOk = (gotTitle == m_cur.title.trimmed());
+
+            if (!noOk || !titleOk) {
+                m_bodyOk = false;
+                if (++m_fillTry <= 5) {
+                    emit log(QStringLiteral("  页面回读不符（章号「%1」标题「%2」），重写 %3/5")
+                                 .arg(gotNo, gotTitle)
+                                 .arg(m_fillTry));
+                    gotoStep(S_Fill);
+                    return;
+                }
+                failChapter(QStringLiteral("章号/标题写不进去（回读 章号「%1」标题「%2」）")
+                                .arg(gotNo, gotTitle));
+                return;
+            }
+
+            if (!m_bodyOk) {
+                gotoStep(S_Body);
+                return;
+            }
+            if (m_wantChars > 0 && chars < static_cast<int>(m_wantChars * 0.9)) {
+                m_bodyOk = false;
+                if (++m_bodyTry <= 3) {
+                    emit log(QStringLiteral("  正文回读只有 %1 字（应为 %2），重写 %3/3")
+                                 .arg(chars)
+                                 .arg(m_wantChars)
+                                 .arg(m_bodyTry));
+                    gotoStep(S_Body);
+                    return;
+                }
+                failChapter(QStringLiteral("正文回读字数不对（%1/%2）").arg(chars).arg(m_wantChars));
+                return;
+            }
+
+            m_fillTry = 0;
+            emit log(QStringLiteral("  已核对：章号=%1　标题=%2　正文=%3 字")
+                         .arg(gotNo, gotTitle)
+                         .arg(chars));
+            gotoStep(S_Next);
+        });
         break;
     }
 
@@ -755,6 +849,21 @@ void UploadWorker::gotoStep(Step s)
             }
 
             // act == wait
+            // 先看有没有番茄自己的校验提示（标题/正文不达标时它只会弹个红条，
+            // 页面不会推进，干等下去只会超时，不如直接把原因报出来）
+            if (m_ticks % 4 == 0) {
+                runJs(QStringLiteral("__fq.tipText?__fq.tipText():''"),
+                      [this, gen](bool okT, const QJsonValue &vT) {
+                          if (gen != m_gen || !m_running)
+                              return;
+                          const QString tip = okT ? vT.toString().trimmed() : QString();
+                          if (!tip.isEmpty())
+                              abortWithDraft(QStringLiteral("第 %1 章没通过番茄校验：%2")
+                                                 .arg(m_cur.no)
+                                                 .arg(tip),
+                                             false);
+                      });
+            }
             const QJsonObject st = o.value(QStringLiteral("stage")).toObject();
             // 注意：这里**不能**再"随便挑一个 /main/writer 标签"——
             // 现在章节管理页和编辑页是两个标签，挑错了就会在列表页上等发布设置。
