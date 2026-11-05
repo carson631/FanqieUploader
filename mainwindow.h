@@ -50,6 +50,7 @@ private:
     void loadSiteScript();
     void setConnected(bool on, const QString &text);
     void loadChapters(const QString &dir);
+    void applyRange(bool logIt);
     void reschedule();
     void updateSummary();
     void showEmptyTable();
@@ -62,7 +63,8 @@ private:
     BrowserLauncher *m_browser = nullptr;
     UploadWorker   *m_worker = nullptr;
     QString         m_siteJs;
-    QList<UploadWorker::Job> m_jobs;
+    QList<UploadWorker::Job> m_allJobs;   // 目录里的全部章节
+    QList<UploadWorker::Job> m_jobs;      // 按「章号范围」筛选后要上传的
 
     // 连接
     QLabel *m_dot = nullptr;
@@ -78,6 +80,9 @@ private:
     // 章节源
     QLineEdit *m_dirEdit = nullptr;
     QPushButton *m_browseBtn = nullptr;
+    QSpinBox  *m_fromSpin = nullptr;
+    QSpinBox  *m_toSpin = nullptr;
+    QLabel    *m_rangeInfo = nullptr;
     QDateEdit *m_dateEdit = nullptr;
     QSpinBox  *m_perDay = nullptr;
     QTimeEdit *m_timeEdit = nullptr;

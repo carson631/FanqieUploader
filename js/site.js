@@ -13,6 +13,12 @@
     return r.width * r.height;
   };
 
+  // 后台界面上的固定文案，绝不是书名 / 卷名 —— 只靠字号筛会被这些按钮污染
+  const UI_WORD =
+    /^(章节管理|新建章节|创建章节|新建书|新建作品|创建新书|作品管理|作品相关|创作中心|首页|数据中心|评论管理|消息|设置|帮助|退出登录|退出|全部|搜索|搜索章节|筛选|排序|更多|编辑|删除|查看|上传|下载|发布|已发布|连载中|已完结|签约|未签约|草稿|审核中|待审核|审核状态|新建|分卷管理|编辑分卷|确定|取消)$/;
+  const UI_NOISE =
+    /(章节管理|新建章节|创建章节|审核状态|搜索章节|编辑分卷|作品管理|作品相关|连载模式|完本模式|签约状态|字数统计|上一页|下一页|每页|共\s*\d+\s*条|已发布|连载中|已完结|万字)/;
+
   function vis(el, allowHidden) {
     if (!el || !el.getBoundingClientRect) return false;
     const r = el.getBoundingClientRect();
@@ -165,16 +171,93 @@
 
   // ---------- 书籍管理页 ----------
 
+  // 一张书卡里挑书名：只认最内层、字号最大的那段文字，且排除所有固定文案
+  function titleIn(card) {
+    // 优先用后台语义类名（番茄两种书卡：.info-content-title / .completion-book-item-title）
+    const hint = card.querySelector(
+      '.info-content-title,.completion-book-item-title,[class*="item-title"],[class*="book-title"],[class*="book-name"]'
+    );
+    if (hint) {
+      const ht = T(hint);
+      if (ht && ht.length >= 2 && ht.length <= 30 && !UI_WORD.test(ht) && !UI_NOISE.test(ht)) return ht;
+    }
+    let best = null;
+    for (const e of card.querySelectorAll('*')) {
+      if (!vis(e, true)) continue;
+      if (!inner(e)) continue;
+      // 按钮区里的文案（作品相关 / 章节管理 / 创建章节）不是书名
+      if (e.closest && e.closest('button,[role="button"],[class*="right-btns"],[class*="btn"]')) continue;
+      const t = T(e);
+      if (!t || t.length < 2 || t.length > 30) continue;
+      if (UI_WORD.test(t) || UI_NOISE.test(t)) continue;
+      if (/^\s*第\s*[0-9０-９一二三四五六七八九十百千]{1,6}\s*章/.test(t)) continue;  // 章节标题
+      if (/最近更新|^共\s*\d/.test(t)) continue;
+      if (/\d{4}-\d{1,2}-\d{1,2}/.test(t)) continue;            // 日期
+      if (/^\d+(\.\d+)?\s*(万|千|字|个|章|人)?$/.test(t)) continue; // 纯数字/统计
+      const st = getComputedStyle(e);
+      const fs = parseFloat(st.fontSize) || 0;
+      const fw = parseInt(st.fontWeight) || 400;
+      if (fs < 13) continue;
+      const score = fs * 10 + (fw >= 500 ? 6 : 0) - t.length * 0.15;
+      if (!best || score > best.score) best = { t: t, score: score };
+    }
+    return best ? best.t : null;
+  }
+
   FQ.books = function () {
     const out = [];
+    const push = (raw) => {
+      const t = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!t || t.length < 2 || t.length > 30) return;
+      if (UI_WORD.test(t) || UI_NOISE.test(t)) return;
+      if (/^\s*第\s*[0-9０-９一二三四五六七八九十百千]{1,6}\s*章/.test(t)) return;  // 章节标题不是书名
+      if (/最近更新/.test(t)) return;
+      if (out.indexOf(t) < 0) out.push(t);
+    };
+
+    // 甲案（首选）：走语义类名。番茄后台有两种书卡——
+    // 连载中 .home-book-item（书名 .info-content-title）、
+    // 已完结 .completion-book-item（书名 .completion-book-item-title），
+    // 书名和「作品相关/章节管理/创建章节」按钮是完全分开的两块结构。
+    const cards = [...document.querySelectorAll(
+      '.home-book-item,.completion-book-item,[class*="book-card"]'
+    )].filter((e) => vis(e, true));
+    for (const c of cards) push(titleIn(c));
+    if (out.length) return out;
+
+    // 乙案：以「章节管理」按钮为锚点，向上爬到"整张书卡"这一层。
+    // 关键：按钮自己那一排（.right-btns）也满足"只有一个章节管理"，
+    // 所以要一路爬到最外层仍然只含一个章节管理的容器，并且它得够"胖"（含统计数据）。
+    const anchors = pool(true).filter((e) => T(e) === '章节管理');
+    const picked = [];
+    for (const a of anchors) {
+      let cur = a;
+      let card = null;
+      for (let i = 0; i < 10 && cur.parentElement; i++) {
+        cur = cur.parentElement;
+        const txt = T(cur);
+        if (txt.length > 400) break;
+        if ((txt.match(/章节管理/g) || []).length !== 1) break;   // 已经爬到多本书的外层
+        if (txt.length < 20) continue;                            // 按钮排而已
+        card = cur;                                               // 继续往上，取最外层
+      }
+      if (card && picked.indexOf(card) < 0) picked.push(card);
+    }
+    for (const c of picked) push(titleIn(c));
+    if (out.length) return out;
+
+    // 丙案（最后兜底）：字号 + 卡片特征
     const seen = {};
     for (const e of pool(false)) {
       const t = T(e);
       if (!t || t.length < 2 || t.length > 40) continue;
+      if (UI_WORD.test(t) || UI_NOISE.test(t)) continue;
+      if (/^\s*第\s*[0-9０-９一二三四五六七八九十百千]{1,6}\s*章/.test(t)) continue;
+      if (/最近更新/.test(t)) continue;
+      if (e.closest && e.closest('button,[role="button"],[class*="right-btns"],[class*="btn"]')) continue;
       const st = getComputedStyle(e);
       const fs = parseFloat(st.fontSize) || 0;
-      const fw = parseInt(st.fontWeight) || 400;
-      if (fs < 13 || fw < 500) continue;
+      if (fs < 13) continue;
       let p = e;
       let ok = false;
       for (let i = 0; i < 8 && p; i++) {
@@ -185,13 +268,13 @@
         }
         p = p.parentElement;
       }
-      if (!ok) continue;
-      if (seen[t]) continue;
+      if (!ok || seen[t]) continue;
       seen[t] = 1;
       out.push(t);
     }
     return out;
   };
+
 
   // 鼠标移到书卡上，「章节管理」按钮才会出现
   FQ.openBook = async function (title) {
@@ -235,45 +318,160 @@
 
   // ---------- 章节管理页：选卷 ----------
 
-  // 卷名形如「第二卷：圣歌与暗金」。注意要排除外层容器——
-  // 容器文本会把多个卷名拼在一起，点它并不会真的选中选项。
-  function isVol(t) {
-    if (!t || t.length > 40) return false;
-    if (!/^第[0-9０-９一二三四五六七八九十百零〇]{1,6}卷[\s:：]/.test(t)) return false;
-    const n = (t.match(/第[0-9０-９一二三四五六七八九十百零〇]{1,6}卷/g) || []).length;
-    return n === 1;
+  // 卷名形如「第二卷：圣歌与暗金」。
+  // 老版本只要求"整段文本里出现一次 第X卷"，于是「第二卷：圣歌与暗金 审核状态 全部
+  // 搜索章节 设置编辑分卷新建章节」这种外层容器也被当成卷名。现在收紧：
+  //   · 必须是 第X卷 开头，之后可选一个冒号 + 卷名
+  //   · 卷名里不允许有空格（容器拼接必然带空格）、不允许超过 16 字
+  //   · 不允许命中任何后台固定文案
+  const VOL_RE = /^第([0-9０-９]{1,4}|[一二三四五六七八九十百零〇]{1,6})卷\s*(?:[:：]\s*(.*))?$/;
+
+  function volName(t) {
+    if (!t) return null;
+    const s = String(t).replace(/\s+/g, ' ').trim();
+    if (s.length > 24) return null;
+    if (UI_NOISE.test(s) || UI_WORD.test(s)) return null;
+    const m = s.match(VOL_RE);
+    if (!m) return null;
+    const name = (m[2] || '').trim();
+    if (/\s/.test(name)) return null;
+    if (name.length > 16) return null;
+    return s;
   }
 
-  FQ.volumes = function () {
-    const out = [];
-    for (const e of pool(false)) {
-      const t = T(e);
-      if (!isVol(t)) continue;
-      if (out.indexOf(t) < 0) out.push(t);
+  function isVol(t) {
+    return volName(t) !== null;
+  }
+
+  // 是否在下拉浮层里的「选项」。优先靠 role=option（语义属性不会被打包随机化），
+  // 退化再用文本特征区分——触发器在页面流里，选项在浮层里。
+  function isOptionEl(el) {
+    let cur = el;
+    for (let i = 0; i < 6 && cur; i++) {
+      const role = cur.getAttribute && cur.getAttribute('role');
+      if (role === 'option') return true;
+      cur = cur.parentElement;
     }
+    return false;
+  }
+
+  function volEls() {
+    return pool(false).filter((e) => isVol(T(e)));
+  }
+
+  // 触发器 = 不在 role=option 浮层里的那个（页面上通常只有一个）
+  function volTrigger() {
+    const els = volEls();
+    return els.find((e) => !isOptionEl(e)) || els[0] || null;
+  }
+
+  // 卷序号，用来把下拉里的乱序（新版在前）排成 第一卷、第二卷…
+  function volNo(s) {
+    const m = String(s || '').match(/^第([0-9０-９]{1,4}|[一二三四五六七八九十百零〇]{1,6})卷/);
+    if (!m) return 9999;
+    const d = m[1].replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+    if (/^\d+$/.test(d)) return parseInt(d, 10);
+    const num = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    let total = 0;
+    let cur = 0;
+    for (const ch of d) {
+      if (ch === '百') { total += (cur || 1) * 100; cur = 0; }
+      else if (ch === '十') { total += (cur || 1) * 10; cur = 0; }
+      else if (num[ch] !== undefined) cur = num[ch];
+    }
+    return total + cur;
+  }
+
+  function volList(arr) {
+    const out = [];
+    for (const t of arr) {
+      const n = volName(t);
+      if (n && out.indexOf(n) < 0) out.push(n);
+    }
+    out.sort((a, b) => volNo(a) - volNo(b));
     return out;
+  }
+
+  // 读全部分卷。下拉没展开时只有一个触发器，此时点开它枚举选项，读完再点回去收起，
+  // 这样界面状态确定（pickVolume 永远从"收起"开始，不会因为误点把已展开的菜单关掉）。
+  FQ.volumes = async function () {
+    let els = volEls();
+    let opts = els.filter(isOptionEl).map(T);
+    let weOpened = false;
+    if (opts.length <= 1) {
+      const trg = volTrigger();
+      if (!trg) return [];
+      trg.click();
+      await sleep(520);
+      weOpened = true;
+      els = volEls();
+      opts = els.filter(isOptionEl).map(T);
+      if (opts.length <= 1) {
+        // 有些模板没有 role=option：退化成"去掉触发器后剩下的"
+        const rest = els.filter((e) => e !== volTrigger());
+        opts = rest.length ? rest.map(T) : els.map(T);
+      }
+      const t2 = volTrigger();
+      if (t2) { t2.click(); await sleep(220); }   // 收起
+    }
+    const list = volList(opts);
+    // 触发器上显示的当前卷也补进来（浮层只渲染可视区域时可能漏掉它）
+    const trg = volTrigger();
+    if (trg) {
+      const cur = volName(T(trg));
+      if (cur && list.indexOf(cur) < 0) list.push(cur);
+      if (cur) list.sort((a, b) => volNo(a) - volNo(b));
+    }
+    return list;
   };
 
   FQ.pickVolume = async function (name) {
-    let els = pool(false).filter((e) => isVol(T(e)));
-    if (!els.length) return { ok: false, why: 'no-volume', buttons: buttons() };
-    // 只有一个：那是下拉触发器，先点开
-    if (els.length === 1) {
-      els[0].click();
-      await sleep(450);
-      els = pool(false).filter((e) => isVol(T(e)));
-      if (els.length <= 1) return { ok: false, why: 'menu-not-open', options: els.map(T) };
+    const want = String(name || '').replace(/\s+/g, '');
+    let opts = [];
+
+    // 最多试 3 轮：点开触发器 → 枚举选项；单卷书点完也只有一项，交给下面兜底
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const els = volEls();
+      if (!els.length && !volTrigger()) return { ok: false, why: 'no-volume', buttons: buttons() };
+
+      let cand = els.filter(isOptionEl);
+      if (cand.length <= 1) {
+        const trg = volTrigger();
+        const rest = els.filter((e) => e !== trg);
+        if (rest.length > 1) cand = rest;          // 无 role=option 的模板
+      }
+      if (cand.length > 1) { opts = cand; break; }
+
+      const trg = volTrigger();
+      if (!trg) break;
+      trg.click();
+      await sleep(520);
     }
-    const target = name ? els.find((e) => T(e).indexOf(name) >= 0) : els[els.length - 1];
-    if (!target) return { ok: false, why: 'volume-not-found', options: els.map(T) };
+
+    if (!opts.length) {
+      // 单卷书 / 菜单没展开：只要当前卷就是要的卷，也算成功
+      const cur = FQ.currentVolume();
+      if (want && cur && cur.replace(/\s+/g, '') === want) return { ok: true, picked: cur, single: true };
+      return { ok: false, why: 'volume-not-found', options: cur ? [cur] : [] };
+    }
+
+    let target = null;
+    if (want) target = opts.find((e) => T(e).replace(/\s+/g, '') === want);
+    if (!target && want) target = opts.find((e) => T(e).replace(/\s+/g, '').indexOf(want) >= 0);
+    if (!target) {
+      if (want) return { ok: false, why: 'volume-not-found', options: opts.map(T) };
+      target = opts[opts.length - 1];
+    }
+    target.scrollIntoView({ block: 'center' });
     target.click();
     await sleep(500);
-    return { ok: true, picked: T(target), options: els.map(T) };
+    return { ok: true, picked: T(target), options: opts.map(T) };
   };
 
   FQ.currentVolume = function () {
-    const els = pool(false).filter((e) => isVol(T(e)));
-    return els.length ? T(els[0]) : '';
+    const trg = volTrigger();
+    if (!trg) return '';
+    return volName(T(trg)) || '';
   };
 
   FQ.newChapter = function () {

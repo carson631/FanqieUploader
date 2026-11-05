@@ -30,6 +30,7 @@
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTableWidget>
@@ -315,7 +316,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.0"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.1"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);
@@ -407,42 +408,72 @@ void MainWindow::buildUi()
     auto *f3 = new QGridLayout;
     f3->setHorizontalSpacing(8);
     f3->setVerticalSpacing(8);
-    f3->addWidget(new QLabel(QStringLiteral("首章日期")), 0, 0);
+
+    // 章节范围：只上传目录里指定章号区间的部分（默认全选）
+    f3->addWidget(new QLabel(QStringLiteral("章节范围")), 0, 0);
+    auto *rowRange = new QHBoxLayout;
+    rowRange->setSpacing(6);
+    m_fromSpin = new QSpinBox;
+    m_fromSpin->setRange(0, 99999);
+    m_fromSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_fromSpin->setAlignment(Qt::AlignCenter);
+    m_fromSpin->setFixedWidth(84);
+    m_toSpin = new QSpinBox;
+    m_toSpin->setRange(0, 99999);
+    m_toSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_toSpin->setAlignment(Qt::AlignCenter);
+    m_toSpin->setFixedWidth(84);
+    rowRange->addWidget(new QLabel(QStringLiteral("第")));
+    rowRange->addWidget(m_fromSpin);
+    rowRange->addWidget(new QLabel(QStringLiteral("章　至　第")));
+    rowRange->addWidget(m_toSpin);
+    rowRange->addWidget(new QLabel(QStringLiteral("章")));
+    m_rangeInfo = new QLabel(QStringLiteral("全部"));
+    m_rangeInfo->setObjectName(QStringLiteral("hint"));
+    rowRange->addSpacing(6);
+    rowRange->addWidget(m_rangeInfo);
+    rowRange->addStretch(1);
+    f3->addLayout(rowRange, 0, 1, 1, 3);
+
+    f3->addWidget(new QLabel(QStringLiteral("首章日期")), 1, 0);
     m_dateEdit = new QDateEdit;
     m_dateEdit->setCalendarPopup(true);
     m_dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
     m_dateEdit->setDate(QDate::currentDate().addDays(1));
-    f3->addWidget(m_dateEdit, 0, 1);
-    f3->addWidget(new QLabel(QStringLiteral("每天")), 0, 2);
+    f3->addWidget(m_dateEdit, 1, 1);
+    f3->addWidget(new QLabel(QStringLiteral("每天")), 1, 2);
     m_perDay = new QSpinBox;
     m_perDay->setRange(1, 20);
     m_perDay->setValue(3);
     m_perDay->setSuffix(QStringLiteral(" 章"));
     m_perDay->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    f3->addWidget(m_perDay, 0, 3);
-    f3->addWidget(new QLabel(QStringLiteral("首发时间")), 1, 0);
+    f3->addWidget(m_perDay, 1, 3);
+    f3->addWidget(new QLabel(QStringLiteral("首发时间")), 2, 0);
     m_timeEdit = new QTimeEdit(QTime(19, 0));
     m_timeEdit->setDisplayFormat(QStringLiteral("HH:mm"));
     m_timeEdit->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    f3->addWidget(m_timeEdit, 1, 1);
-    f3->addWidget(new QLabel(QStringLiteral("间隔")), 1, 2);
+    f3->addWidget(m_timeEdit, 2, 1);
+    f3->addWidget(new QLabel(QStringLiteral("间隔")), 2, 2);
     m_interval = new QSpinBox;
     m_interval->setRange(0, 120);
     m_interval->setValue(5);
     m_interval->setSuffix(QStringLiteral(" 分钟"));
     m_interval->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    f3->addWidget(m_interval, 1, 3);
+    f3->addWidget(m_interval, 2, 3);
     f3->setColumnStretch(1, 1);
     f3->setColumnStretch(3, 1);
     c3->addLayout(f3);
 
     auto *h3 = new QLabel(QStringLiteral(
-        "排期规则：每天 3 章 → 19:00 / 19:05 / 19:10；第 4 章自动顺延到次日 19:00。"));
+        "排期规则：每天 3 章 → 19:00 / 19:05 / 19:10；第 4 章自动顺延到次日 19:00。"
+        "章节范围按文件名里的章号筛选，例如 41 至 80 就只传这 40 章。"));
     h3->setObjectName(QStringLiteral("hint"));
     h3->setWordWrap(true);
     c3->addWidget(h3);
 
     connect(m_browseBtn, &QPushButton::clicked, this, &MainWindow::pickFolder);
+    connect(m_fromSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { applyRange(false); });
+    connect(m_toSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { applyRange(false); });
     connect(m_perDay, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { reschedule(); });
     connect(m_interval, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { reschedule(); });
     connect(m_dateEdit, &QDateEdit::dateChanged, this, [this](const QDate &) { reschedule(); });
@@ -723,7 +754,7 @@ void MainWindow::loadChapters(const QString &dirPath)
     static const QRegularExpression kNum(QStringLiteral("^\\s*(\\d+)\\s*[\\s_\\.\\-]*(.*)$"));
     static const QRegularExpression kCn(QStringLiteral("^\\s*第([0-9０-９]+)章\\s*(.*)$"));
 
-    m_jobs.clear();
+    m_allJobs.clear();
     int seq = 0;
     for (const QString &f : files) {
         const QFileInfo fi(d.filePath(f));
@@ -749,26 +780,79 @@ void MainWindow::loadChapters(const QString &dirPath)
         job.body = cleanBody(readText(job.file));
         if (job.body.isEmpty())
             appendLog(QStringLiteral("⚠ 空文件：%1").arg(f));
-        m_jobs.append(job);
+        m_allJobs.append(job);
     }
-    std::sort(m_jobs.begin(), m_jobs.end(),
+    std::sort(m_allJobs.begin(), m_allJobs.end(),
               [](const UploadWorker::Job &a, const UploadWorker::Job &b) { return a.no < b.no; });
-    for (int i = 1; i < m_jobs.size(); ++i) {
-        if (m_jobs[i].no == m_jobs[i - 1].no) {
+    for (int i = 1; i < m_allJobs.size(); ++i) {
+        if (m_allJobs[i].no == m_allJobs[i - 1].no) {
             appendLog(QStringLiteral("⚠ 章号重复：%1（%2）")
-                          .arg(m_jobs[i].no)
-                          .arg(QFileInfo(m_jobs[i].file).fileName()));
+                          .arg(m_allJobs[i].no)
+                          .arg(QFileInfo(m_allJobs[i].file).fileName()));
         }
     }
 
+    // 范围控件跟着目录走：默认全选，用户再改成 41~80 这种子区间
+    const int lo = m_allJobs.first().no;
+    const int hi = m_allJobs.last().no;
+    {
+        const QSignalBlocker b1(m_fromSpin);
+        const QSignalBlocker b2(m_toSpin);
+        m_fromSpin->setRange(lo, hi);
+        m_toSpin->setRange(lo, hi);
+        m_fromSpin->setValue(lo);
+        m_toSpin->setValue(hi);
+    }
+
+    qint64 total = 0;
+    for (const auto &j : m_allJobs)
+        total += j.body.size();
+    appendLog(QStringLiteral("已载入 %1 章（第 %2 ~ %3 章），共 %4 字")
+                  .arg(m_allJobs.size())
+                  .arg(lo)
+                  .arg(hi)
+                  .arg(total));
+    applyRange(true);
+}
+
+// 按「章号范围」从 m_allJobs 里筛出 m_jobs，再重排时间表
+void MainWindow::applyRange(bool logIt)
+{
+    const int a = m_fromSpin->value();
+    const int b = m_toSpin->value();
+    const int lo = qMin(a, b);
+    const int hi = qMax(a, b);
+
+    m_jobs.clear();
+    for (const auto &j : m_allJobs) {
+        if (j.no >= lo && j.no <= hi)
+            m_jobs.append(j);
+    }
+
+    if (m_allJobs.isEmpty()) {
+        if (m_rangeInfo)
+            m_rangeInfo->setText(QStringLiteral("全部"));
+        reschedule();
+        return;
+    }
+    if (m_rangeInfo) {
+        const bool all = (lo <= m_allJobs.first().no && hi >= m_allJobs.last().no);
+        m_rangeInfo->setText(all
+                                 ? QStringLiteral("全部 · %1 章").arg(m_jobs.size())
+                                 : QStringLiteral("第 %1~%2 章 · %3 章").arg(lo).arg(hi).arg(m_jobs.size()));
+    }
+    if (m_jobs.isEmpty()) {
+        appendLog(QStringLiteral("⚠ 章号范围 %1~%2 里没有章节").arg(lo).arg(hi));
+        reschedule();
+        return;
+    }
+    if (logIt) {
+        appendLog(QStringLiteral("本次上传 %1 章：第 %2 章 → 第 %3 章")
+                      .arg(m_jobs.size())
+                      .arg(m_jobs.first().no)
+                      .arg(m_jobs.last().no));
+    }
     reschedule();
-    appendLog(QStringLiteral("已载入 %1 章，共 %2 字")
-                  .arg(m_jobs.size())
-                  .arg([this]() {
-                      qint64 n = 0;
-                      for (const auto &j : m_jobs) n += j.body.size();
-                      return n;
-                  }()));
 }
 
 void MainWindow::reschedule()
@@ -818,7 +902,7 @@ void MainWindow::showEmptyTable()
     m_table->setRowCount(1);
     m_table->setSpan(0, 0, 1, 4);
     auto *it = new QTableWidgetItem(
-        QStringLiteral("还没有加载章节　·　先在左侧「③ 章节源与排期」选择章节文件夹"));
+        QStringLiteral("还没有加载章节　·　先在左侧「③ 章节源与排期」选择章节文件夹，再按需限定章号范围"));
     it->setTextAlignment(Qt::AlignCenter);
     it->setForeground(QColor(0x9A, 0xA3, 0xB2));
     m_table->setItem(0, 0, it);
@@ -845,7 +929,10 @@ void MainWindow::updateSummary()
 void MainWindow::startUpload()
 {
     if (m_jobs.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("没有章节"), QStringLiteral("先选择章节文件夹。"));
+        QMessageBox::information(this, QStringLiteral("没有章节"),
+                                 m_allJobs.isEmpty()
+                                     ? QStringLiteral("先选择章节文件夹。")
+                                     : QStringLiteral("当前「章节范围」里没有章节，请调整起止章号。"));
         return;
     }
     if (!m_cdp->isConnected()) {
@@ -930,6 +1017,8 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("perDay"), m_perDay->value());
     s.setValue(QStringLiteral("time"), m_timeEdit->time());
     s.setValue(QStringLiteral("interval"), m_interval->value());
+    s.setValue(QStringLiteral("from"), m_fromSpin->value());
+    s.setValue(QStringLiteral("to"), m_toSpin->value());
     s.endGroup();
 }
 
@@ -952,8 +1041,19 @@ void MainWindow::loadSettings()
     m_interval->setValue(s.value(QStringLiteral("interval"), 5).toInt());
     s.endGroup();
 
-    if (!dir.isEmpty() && QDir(dir).exists())
+    if (!dir.isEmpty() && QDir(dir).exists()) {
         loadChapters(dir);
+        // 目录载入会把范围重置成 1~N，这里再恢复上次选的区间
+        const int f = s.value(QStringLiteral("from"), 0).toInt();
+        const int t = s.value(QStringLiteral("to"), 0).toInt();
+        if (f > 0 && t > 0 && !m_allJobs.isEmpty()) {
+            const QSignalBlocker b1(m_fromSpin);
+            const QSignalBlocker b2(m_toSpin);
+            m_fromSpin->setValue(qBound(m_fromSpin->minimum(), f, m_fromSpin->maximum()));
+            m_toSpin->setValue(qBound(m_toSpin->minimum(), t, m_toSpin->maximum()));
+            applyRange(false);
+        }
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *e)
@@ -971,6 +1071,16 @@ void MainWindow::runAutoTest(const QString &shot)
     if (!dir.isEmpty()) {
         m_dirEdit->setText(QDir::toNativeSeparators(dir));
         loadChapters(dir);
+    }
+    // 自测用：CU_FROM / CU_TO 可验证章节范围筛选
+    const int f = qEnvironmentVariableIntValue("CU_FROM");
+    const int t = qEnvironmentVariableIntValue("CU_TO");
+    if (f > 0 && t > 0 && !m_allJobs.isEmpty()) {
+        const QSignalBlocker b1(m_fromSpin);
+        const QSignalBlocker b2(m_toSpin);
+        m_fromSpin->setValue(qBound(m_fromSpin->minimum(), f, m_fromSpin->maximum()));
+        m_toSpin->setValue(qBound(m_toSpin->minimum(), t, m_toSpin->maximum()));
+        applyRange(true);
     }
     QTimer::singleShot(900, this, [this, shot]() {
         if (!shot.isEmpty()) {

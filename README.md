@@ -32,13 +32,21 @@ Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带�
 
 「每天章数」「首发时间」「间隔」都在界面上可改；填的日期就是**首章日期**。
 
+## 章节范围（只传一段）
+
+目录里 150 章、这次只想补传 41~80？在「③ 章节源与排期」里把范围改成 `第 41 章 至 第 80 章` 即可：
+
+- 默认按目录里的**最小章号 ~ 最大章号**全选，右侧表格与排期表立刻按范围重算
+- 范围只筛章号，不改文件名与正文；改完起止值会自动重排定时时间
+- 起止写反了也能用（自动取小值到大值）；范围为空会提示，不会误发
+
 ## 快速开始
 
-1. 解压 `FanqieUploader-v1.0.0-win64-portable.zip`，双击 `FanqieUploader.exe`
+1. 解压 `FanqieUploader-v1.0.1-win64-portable.zip`，双击 `FanqieUploader.exe`
 2. 点 **「启动浏览器」** —— 会用独立 profile 起一个 Edge/Chrome 并打开作家后台
 3. 在这个浏览器里**登录一次**（登录态会一直留着，不影响你日常用的浏览器）
 4. 在浏览器里进到**目标书的「章节管理」页**，点工具里的 **「刷新」** 读书名与分卷
-5. 选章节文件夹（用 [txt文档章节编辑器](https://github.com/carson631) 拆好的那一堆 `1城陷之夜.txt`）
+5. 选章节文件夹（用 [txt文档章节编辑器](https://github.com/carson631) 拆好的那一堆 `1城陷之夜.txt`），按需限定章节范围
 6. 设「首章日期」，核对左下角排期与右侧表格
 7. 点 **「开始上传」**，弹窗确认后开始跑；跑的时候别去动那个浏览器页面
 
@@ -70,6 +78,9 @@ Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带�
 
 - **不内嵌浏览器**：MinGW 版 Qt 根本没有 WebEngine 模块（`aqt list-qt` 里查不到），所以走 Chrome DevTools Protocol，用 `--remote-debugging-port` 驱动你本机的 Edge/Chrome。好处是登录态天然复用。
 - **不依赖 class 名**：番茄的类是构建后随机化的，所有定位都按「可见文本 + placeholder + 结构位置」来，配合「取面积最小的候选」避免点到外层容器。
+  - 例外是书名/分卷这两处有稳定语义类名的（`.home-book-item` / `.completion-book-item` / `.info-content-title`），优先用它们，取不到再退回文本启发式。
+  - 书名识别另有一份「后台固定文案黑名单」（章节管理 / 新建章节 / 创建章节 / 作品相关 / 已发布 / 连载中 …），并排除 `第N章` 形式的章节行，避免把按钮和章节预览当成书名。
+  - 卷名收紧为「`第X卷[: 卷名]` 且卷名内不含空格」，容器拼接出来的长文本一律不算；下拉里按卷号升序排列。
 - **每步都自检**：找不到元素时会把当前页面的按钮清单、输入框清单打进日志，方便第一时间定位是哪一步失配。
 - **失败不留半成品**：正文写进去之后出任何岔子，都先把草稿存下来再中断。
 
@@ -90,7 +101,18 @@ Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带�
 msedge --headless=new --virtual-time-budget=9000 --dump-dom tools/test.html
 ```
 
-`tools/test.html` 用真实浏览器跑 37 项断言，覆盖错别字弹窗、纠错页、检测弹窗、风险识别、发布设置、存草稿、选卷、填章号/标题/正文等判定逻辑。
+`tools/test.html` 用真实浏览器跑 44 项断言，覆盖错别字弹窗、纠错页、检测弹窗、风险识别、发布设置、存草稿、选卷、书名识别（连载/已完结两种书卡）、容器文本不被当成卷名、填章号/标题/正文等判定逻辑。
+
+**想对着真实后台复验书名/分卷**
+
+```bash
+# 先用工具自己那个 profile 起一个带调试端口的浏览器
+msedge --headless=new --remote-debugging-port=9333 \
+       --user-data-dir="%LOCALAPPDATA%\carson\FanqieUploader\browser-profile" \
+       https://fanqienovel.com/main/writer/book-manage
+# 再注入 site.js 并读一次
+python tools/cdp_probe.py 9333 js/site.js "__fq.books()" "__fq.volumes()"
+```
 
 ## 目录
 
@@ -101,7 +123,8 @@ FanqieUploader/
 ├─ cdpclient.cpp/h       DevTools 协议客户端
 ├─ browserlauncher.cpp/h 拉起带调试端口的 Edge/Chrome
 ├─ js/site.js            页面自动化脚本（文本驱动，25 个接口）
-├─ tools/test.html       headless 逻辑自测（37 项）
+├─ tools/test.html       headless 逻辑自测（44 项）
+├─ tools/cdp_probe.py    对真实后台做一次勘察（注入 site.js + 读书名/分卷）
 └─ dist/                 便携版（自带 Qt 运行库）
 ```
 
