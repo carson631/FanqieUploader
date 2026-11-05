@@ -1,3 +1,54 @@
+# v1.0.9 — 番茄章节上传工具
+
+## 本版：启动时间减半、单章上传快 4 秒
+
+### 启动：806ms → 370ms（-54%）
+
+用 `CU_BOOT=1` 分段量出来的：
+
+| 阶段 | 优化前 | 优化后 |
+|---|---|---|
+| QApplication 初始化 | 80ms | 65ms |
+| MainWindow 构造 | **640ms** | **145ms** |
+| ├ 建控件 | 46ms | 46ms |
+| └ QSS 应用（polish） | **480ms** | **2ms** |
+| show + 首帧 | 90ms | 75ms |
+
+**根因**：QSS 里那条
+
+```css
+QPlainTextEdit#log { font-family:"Consolas","Courier New"; ... }
+```
+
+Qt 把 `"Consolas","Courier New"` 当成**一个**字体名去查（带引号和逗号），查不到就回退——
+而且**每个控件 polish 时都要重做一次**。78 个控件累起来就是 460ms。
+一条声明拖掉了整个启动时间的一半。
+
+修法：`font-family` 从 QSS 里删掉，日志控件在代码里 `setFont(QFont("Consolas"))` 设一次。
+
+同类问题一并清掉：`QLabel { font-size:13px }`、`QPushButton { font-size:13px }`、
+输入框组、QCheckBox 的字号声明都删了，改成 `app.setFont(13px)` 全局设一次 ——
+QSS 里只保留真正有差异的字号（标题 19px、副标题 12px、提示 11px 等）。
+
+### 运行时间：单章 11s → 7s
+
+| 环节 | 优化前 | 优化后 |
+|---|---|---|
+| 全面检测轮询 | 3000ms/次 | 1500ms/次（提早发现完成） |
+| 发布日期时间设置 | ~4.0s | ~2.0s |
+| 发布回执轮询 | 2000ms | 1200ms |
+
+`setPublish` 里各段等待按实测收紧（打开面板 450→320、点格 420→350、确定 380→260、
+收浮层 380→260、点完等重渲染 700→250），校验逻辑不变（仍读 React `props.value`）。
+
+### 其他
+
+- `CMAKE_BUILD_TYPE` 未指定时**默认 Release**：无优化版启动要多花一倍时间。
+  在 Qt Creator 里跑请用 Release 配置（`Desktop_Qt_6_8_3_MinGW_64_bit_Debug` 是 Debug 版）。
+- 新增 `CU_BOOT=1`：把分段启动耗时写进 `%TEMP%\fqboot.txt` 后自动退出，方便以后回归对比。
+
+---
+
 # v1.0.8 — 番茄章节上传工具
 
 ## 本版修的两个关键问题

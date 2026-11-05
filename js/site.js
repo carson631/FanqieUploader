@@ -799,10 +799,10 @@
   async function openPicker(input, isOpen) {
     if (isOpen && isOpen()) return true;
     input.click();
-    await sleep(450);
+    await sleep(320);
     if (!isOpen || isOpen()) return true;
     input.click();
-    await sleep(400);
+    await sleep(300);
     return !isOpen || isOpen();
   }
 
@@ -836,7 +836,7 @@
             .find((e) => /时间/.test(e.getAttribute('placeholder') || ''));
       if (!el) return false;
       el.click();
-      await sleep(380);
+      await sleep(260);
     }
     return !datePanel() && !timePanel();
   }
@@ -864,7 +864,7 @@
         const btn = icons.find((ic) => ic.querySelector(sel));
         if (!btn) break;
         btn.click();
-        await sleep(160);
+        await sleep(120);
       }
 
       const cell = [...panel.querySelectorAll('[class*="cell"]')]
@@ -872,7 +872,7 @@
         .find((c) => (c.innerText || '').trim() === d);
       if (!cell) return false;
       (cell.querySelector('.arco-picker-date-value') || cell).click();
-      await sleep(420);
+      await sleep(350);
       if (input.value === dateStr) return true;
     }
     return false;
@@ -913,7 +913,7 @@
     }
     if (!btn) return false;
     btn.click();
-    await sleep(380);
+    await sleep(260);
     return true;
   }
 
@@ -931,17 +931,17 @@
           .find((c) => (c.innerText || '').trim() === txt);
         if (!li) return false;
         (li.querySelector('.arco-timepicker-cell-inner') || li).click();
-        await sleep(200);
+        await sleep(150);
         return true;
       };
       if (!(await pick(lists[0], hh))) return false;
       if (!(await pick(lists[1], mi))) return false;
-      await sleep(180);
+      await sleep(120);
 
       // ← 关键：必须点确定，否则值根本没提交（老版本漏了这步，日志说改了、实际没改）
       if (!(await confirmPicker(panel))) return false;
       // 点完确定面板会收起；再等一次重渲染后回读，值必须是目标
-      await sleep(420);
+      await sleep(300);
       if ((input.value || '').indexOf(timeStr) === 0) return true;
     }
     return false;
@@ -1018,7 +1018,7 @@
       }
     }
     res.steps.push(aiDone ? 'AI=否' : 'AI=否(未找到)');
-    await sleep(250);
+    await sleep(120);
 
     // 2) 定时发布开关（Arco Switch：类名带 arco-switch-checked 表示已开）
     const sw = root.querySelector('.arco-switch, [role="switch"], input[type="checkbox"]');
@@ -1031,7 +1031,7 @@
     } else {
       res.steps.push('定时发布(未找到)');
     }
-    await sleep(400);
+    await sleep(280);
 
     // 3) 日期 / 时间：优先按 placeholder，再按格式兜底
     const ins2 = [...document.querySelectorAll('input')].filter((e) => vis(e));
@@ -1068,8 +1068,9 @@
     } else res.steps.push('时间(未找到)');
 
     // 4) 收起浮层后等一次重渲染：显示值可能是「假」的，只有状态真的变了才留得住
+    //    （校验读的是 React props.value，所以这点等待只够收起浮层即可）
     await closePickers();
-    await sleep(700);
+    await sleep(250);
 
     let dateOk = !!dateEl && dateEl.value === dateStr;
     let timeOk = !!timeEl && (timeEl.value || '').indexOf(timeStr) === 0;

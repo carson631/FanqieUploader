@@ -793,7 +793,8 @@ void UploadWorker::gotoStep(Step s)
             m_ticks = 0;
             m_stepped = true;
             emit log(QStringLiteral("  已点「下一步」"));
-            scheduleNext(S_Pump, 1200);
+            // 首次等 900ms（全面检测弹窗一般 1s 内出现），之后 700ms 一轮轮询
+            scheduleNext(S_Pump, 900);
         });
         break;
     }
@@ -847,7 +848,8 @@ void UploadWorker::gotoStep(Step s)
             }
             if (act == QLatin1String("fullDetect")) {
                 emit log(QStringLiteral("  全面检测中，等待结果…"));
-                scheduleNext(S_Pump, 3000);
+                // 检测一般 3s 左右；1.5s 查一次能提早发现完成，多花一次 CDP 往返
+                scheduleNext(S_Pump, 1500);
                 return;
             }
 
@@ -954,7 +956,7 @@ void UploadWorker::gotoStep(Step s)
                           }
                           emit log(QStringLiteral("  已点「确认发布」，等回执…"));
                           m_ticks = 0;
-                          scheduleNext(S_PublishWait, 2000);
+                          scheduleNext(S_PublishWait, 1200);
                       });
                   });
         });

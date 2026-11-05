@@ -1,10 +1,17 @@
 cmake_minimum_required(VERSION 3.21)
-project(FanqieUploader VERSION 1.0.8 LANGUAGES CXX RC)
+project(FanqieUploader VERSION 1.0.9 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
+
+# 单配置生成器（Ninja / MinGW Makefiles）不指定类型时默认 Release：
+# 无优化的 Debug 版启动要多花一倍时间，界面也更迟钝
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    message(STATUS "CMAKE_BUILD_TYPE 未指定 → 默认 Release")
+endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network WebSockets)
 

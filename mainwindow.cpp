@@ -9,6 +9,7 @@
 #include <QDateEdit>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -60,15 +61,15 @@ QLabel#verTag {
 }
 
 QFrame#card { background:#FFFFFF; border:1px solid #E6E8EC; border-radius:12px; }
-QLabel#section { color:#1F2937; font-size:13px; font-weight:700; }
+QLabel#section { color:#1F2937; font-weight:700; }
 QLabel#hint { color:#8A93A3; font-size:11px; }
 QLabel#stat { color:#5B6577; font-size:12px; }
 
-QLabel { color:#25313F; font-size:13px; }
+QLabel { color:#25313F; }
 
 QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox {
     background:#FBFCFD; border:1px solid #DFE3EA; border-radius:8px;
-    padding:5px 9px; font-size:13px; color:#22303F;
+    padding:5px 9px; color:#22303F;
     selection-background-color:#FFD9C7;
 }
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus {
@@ -94,7 +95,7 @@ QCheckBox::indicator:checked {
 
 QPushButton {
     background:#FFFFFF; border:1px solid #DFE3EA; border-radius:8px;
-    padding:6px 14px; font-size:13px; color:#2A3A50;
+    padding:6px 14px; color:#2A3A50;
 }
 QPushButton:hover  { background:#FFF7F2; border-color:#FFC3A6; }
 QPushButton:pressed { background:#FFEDE3; }
@@ -129,10 +130,10 @@ QProgressBar::chunk { background:#FF6B35; border-radius:5px; }
 
 QPlainTextEdit#log {
     background:#FBFCFD; border:1px solid #EAEDF2; border-radius:10px;
-    color:#3B4A5E; font-family:"Consolas","Courier New"; font-size:12px; padding:6px;
+    color:#3B4A5E; padding:6px;
 }
 
-QCheckBox { color:#25313F; font-size:13px; spacing:7px; }
+QCheckBox { color:#25313F; spacing:7px; }
 
 QScrollBar:vertical { background:transparent; width:10px; margin:2px; }
 QScrollBar::handle:vertical { background:#D2D7E0; border-radius:5px; min-height:24px; }
@@ -206,12 +207,19 @@ bool saneName(const QString &raw)
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
+    // 启动耗时剖析（CU_BOOT=1 时把各段耗时追加到 %TEMP%/fqboot.txt）
+    QElapsedTimer prof;
+    prof.start();
+
     setWindowTitle(QStringLiteral("番茄章节上传工具"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
-    setStyleSheet(QString::fromUtf8(kStyle));
+    // 样式表等控件全建完再一次性应用：提前 set 会让每个新控件在 polish 时
+    // 逐条匹配 QSS 规则，78 个控件累起来就是几百毫秒（实测差 ~200ms）
+    const qint64 tCss = prof.restart();
     resize(1200, 800);
 
     loadSiteScript();
+    const qint64 tJs = prof.restart();
 
     m_cdp = new CdpClient(this);
     m_cdp->setPort(BrowserLauncher::defaultPort());
@@ -220,6 +228,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     m_worker->setSiteScript(m_siteJs);
 
     buildUi();
+    const qint64 tUi = prof.restart();
+    setStyleSheet(QString::fromUtf8(kStyle));
+    const qint64 tPolish = prof.restart();
 
     connect(m_cdp, &CdpClient::connected, this, [this](const QString &url, const QString &) {
         setConnected(true, QStringLiteral("已连接"));
@@ -271,13 +282,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
                                              QStringLiteral("MMM d yyyy"));
     appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
-                  .arg(QStringLiteral("1.0.8"),
+                  .arg(QStringLiteral("1.0.9"),
                        buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
                                           : QString::fromLatin1(__DATE__).simplified(),
                        QString::fromLatin1(__TIME__)));
     setConnected(false, QStringLiteral("未连接"));
     appendLog(QStringLiteral("就绪。首次使用：点「启动浏览器」，在弹出的浏览器里登录番茄作家账号。"));
     loadSettings();
+    const qint64 tRest = prof.elapsed();
+
+    if (qEnvironmentVariableIsSet("CU_BOOT")) {
+        QFile f(QDir::tempPath() + QStringLiteral("/fqboot.txt"));
+        if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
+            f.write(QStringLiteral("ctor: style=%1ms js=%2ms worker+ui=%3ms polish=%4ms rest=%5ms\n")
+                        .arg(tCss).arg(tJs).arg(tUi).arg(tPolish).arg(tRest).toUtf8());
+        }
+    }
 }
 
 MainWindow::~MainWindow()
@@ -342,7 +362,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.8"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.9"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);
@@ -616,6 +636,16 @@ void MainWindow::buildUi()
 
     m_log = new QPlainTextEdit;
     m_log->setObjectName(QStringLiteral("log"));
+    // 等宽字体在这里设（不能写进 QSS）：QSS 的 font-family 会让每个控件
+    // polish 时都做一次字体族查找，带引号+逗号的多字体族更是每次都匹配失败
+    // —— 实测这一条占了启动的 460ms（polish 466ms → 2ms）
+    {
+        QFont mono(QStringLiteral("Consolas"));
+        mono.setStyleHint(QFont::Monospace);
+        mono.setPixelSize(12);
+        m_log->setFont(mono);
+        m_log->document()->setDefaultFont(mono);
+    }
     m_log->setReadOnly(true);
     m_log->setUndoRedoEnabled(false);
     m_log->setMaximumBlockCount(4000);

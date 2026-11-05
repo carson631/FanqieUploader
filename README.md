@@ -42,7 +42,7 @@ Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带�
 
 ## 快速开始
 
-1. 解压 `FanqieUploader-v1.0.8-win64-portable.zip`，双击 `FanqieUploader.exe`
+1. 解压 `FanqieUploader-v1.0.9-win64-portable.zip`，双击 `FanqieUploader.exe`
 2. 点 **「启动浏览器」** —— 会用独立 profile 起一个 Edge/Chrome 并打开作家后台
 3. 在这个浏览器里**登录一次**（登录态会一直留着，不影响你日常用的浏览器）
 4. 在浏览器里进到**目标书的「章节管理」页**，点工具里的 **「刷新」** 读书名与分卷
