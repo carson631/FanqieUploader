@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(FanqieUploader VERSION 1.0.3 LANGUAGES CXX RC)
+project(FanqieUploader VERSION 1.0.4 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,3 +23,12 @@ add_executable(FanqieUploader WIN32
 )
 
 target_link_libraries(FanqieUploader PRIVATE Qt6::Widgets Qt6::Network Qt6::WebSockets)
+
+# 开发时也让 build 目录有 js/site.js：程序优先读 exe 旁边的脚本，
+# 否则会退回资源里的旧副本，改了 js 却像没生效。
+add_custom_command(TARGET FanqieUploader POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FanqieUploader>/js"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/js/site.js"
+            "$<TARGET_FILE_DIR:FanqieUploader>/js/site.js"
+)

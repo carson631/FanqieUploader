@@ -15,3 +15,4 @@ tools/cdp_tabtest/out.txt
 tools/followtest/*.exe
 tools/followtest/moc_*.cpp
 tools/followtest/out.txt
+tools/_dry/

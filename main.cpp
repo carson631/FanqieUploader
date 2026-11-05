@@ -15,7 +15,9 @@ int main(int argc, char *argv[])
     w.show();
 
     // 无人值守自测：CU_SELFTEST=1 CU_SHOT=截图路径 → 截图后自动退出
-    if (!qEnvironmentVariable("CU_SELFTEST").isEmpty())
+    // CU_RUN=1 则是真机联调：自动连接 + 自动点开始上传（配合 CU_DRY=1 只填表不发布）
+    if (!qEnvironmentVariable("CU_SELFTEST").isEmpty()
+        || !qEnvironmentVariable("CU_RUN").isEmpty())
         w.runAutoTest(qEnvironmentVariable("CU_SHOT"));
 
     return app.exec();

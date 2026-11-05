@@ -43,8 +43,14 @@ int main(int argc, char **argv)
 
     QObject::connect(&cdp, &CdpClient::log, [](const QString &m) { say(QStringLiteral("[cdp] ") + m); });
     QObject::connect(&cdp, &CdpClient::failed, [](const QString &m) { say(QStringLiteral("[failed] ") + m); });
-    QObject::connect(&cdp, &CdpClient::connected, [&](const QString &url, const QString &) {
+    auto started = std::make_shared<bool>(false);
+    QObject::connect(&cdp, &CdpClient::connected, [&, started](const QString &url, const QString &) {
         say(QStringLiteral("已连接，url=%1").arg(url.left(110)));
+        if (*started) {
+            say(QStringLiteral("（已进入新标签，不再重复点新建章节）"));
+            return;
+        }
+        *started = true;
         QTimer::singleShot(200, [&]() { start(); });
     });
 
@@ -106,8 +112,29 @@ int main(int argc, char **argv)
     onFollowed = [&](const QString &tid) {
         QTimer::singleShot(2500, [&, tid]() {
             cdp.evaluate(site, [&, tid](bool, const QJsonValue &, const QString &) {
-                cdp.evaluate(QStringLiteral("__fq.stage()"),
-                             [&, tid](bool ok, const QJsonValue &v, const QString &why) {
+                cdp.evaluate(QStringLiteral("__fq.fillChapter(7,\"城陷之夜\")"),
+                             [&, tid](bool okF, const QJsonValue &vF, const QString &whyF) {
+                                 say(QStringLiteral("fillChapter：%1")
+                                         .arg(QString::fromUtf8(QJsonDocument(
+                                             QJsonArray{vF}).toJson(QJsonDocument::Compact))));
+                                 cdp.evaluate(QStringLiteral(
+                                                  "__fq.fillBody('\u591c\u8272\u538b\u5728\u57ce\u5899\u4e0a\u7684\u65f6\u5019\uff0c\u98ce\u4ece\u5317\u9762\u6765\u3002\\n\\n\u5b88\u519b\u6362\u9632\u7684\u9f13\u58f0\u9694\u7740\u4e24\u6761\u8857\u4f20\u8fc7\u6765\u3002')"),
+                                              [&, tid](bool okB, const QJsonValue &vB, const QString &whyB) {
+                                                  say(QStringLiteral("fillBody：%1")
+                                                          .arg(QString::fromUtf8(QJsonDocument(
+                                                              QJsonArray{vB}).toJson(QJsonDocument::Compact))));
+                                                  cdp.evaluate(QStringLiteral("__fq.bodyState()"),
+                                                               [&, tid](bool, const QJsonValue &vS, const QString &) {
+                                                                   say(QStringLiteral("bodyState：%1")
+                                                                           .arg(QString::fromUtf8(QJsonDocument(
+                                                                               QJsonArray{vS}).toJson(QJsonDocument::Compact))));
+                                                                   cdp.evaluate(QStringLiteral("(function(){const b=[...document.querySelectorAll('button')].find(x=>/下一步/.test(x.innerText||''));return b?{found:true,disabled:b.disabled,aria:b.getAttribute('aria-disabled')}:{found:'none'};})()"),
+                                                                                [&, tid](bool, const QJsonValue &vN, const QString &) {
+                                                                                    say(QStringLiteral("next：%1")
+                                                                                            .arg(QString::fromUtf8(QJsonDocument(
+                                                                                                QJsonArray{vN}).toJson(QJsonDocument::Compact))));
+                                                                                    cdp.evaluate(QStringLiteral("__fq.stage()"),
+                                                                                                 [&, tid](bool ok, const QJsonValue &v, const QString &why) {
                                  if (!ok) {
                                      say(QStringLiteral("FAIL stage()：%1").arg(why));
                                  } else {
@@ -121,9 +148,13 @@ int main(int argc, char **argv)
                                              ? QStringLiteral("PASS 编辑页在新标签里可识别")
                                              : QStringLiteral("FAIL 连上了新标签但 editor=false"));
                                  }
-                                 say(QStringLiteral("关闭测试标签 %1").arg(tid));
-                                 cdp.closeTarget(tid);
-                                 QTimer::singleShot(600, []() { QCoreApplication::quit(); });
+                                                                                     say(QStringLiteral("关闭测试标签 %1").arg(tid));
+                                                                                     cdp.closeTarget(tid);
+                                                                                     QTimer::singleShot(600, []() { QCoreApplication::quit(); });
+                                                                                 });
+                                                                                });
+                                                               });
+                                              });
                              });
             });
         });

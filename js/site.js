@@ -216,6 +216,9 @@
       if (UI_WORD.test(t) || UI_NOISE.test(t)) return;
       if (/^\s*第\s*[0-9０-９一二三四五六七八九十百千]{1,6}\s*章/.test(t)) return;  // 章节标题不是书名
       if (/最近更新/.test(t)) return;
+      // 导航条/侧栏被整段拼起来时会带好几个空格（「小说网 作家课堂 作家福利 …」），
+      // 真实书名最多一个空格，直接扔掉
+      if ((t.match(/\s/g) || []).length >= 2) return;
       if (out.indexOf(t) < 0) out.push(t);
     };
 
@@ -274,7 +277,7 @@
       }
       if (!ok || seen[t]) continue;
       seen[t] = 1;
-      out.push(t);
+      push(t);            // 走同一套过滤：导航拼接文本、章节行都不要
     }
     return out;
   };

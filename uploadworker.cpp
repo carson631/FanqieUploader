@@ -316,10 +316,22 @@ void UploadWorker::returnToManage(std::function<void(bool ok)> cb)
     });
 }
 
+// 首章必须在填表前真正「开章」，否则 m_cur 是默认值：
+// 章号 0、标题空、正文空 -> 会把空值填进页面，然后卡在「下一步」。
+void UploadWorker::enterChapter()
+{
+    if (m_index < 0)
+        beginChapter(0);
+    else
+        gotoStep(S_NewChapter);
+}
+
 void UploadWorker::beginChapter(int index)
 {
     m_cur = m_jobs.at(index);
     m_retry = 0;
+    m_fillTry = 0;
+    m_volFix = 0;
     m_ticks = 0;
     m_switchRetry = 0;
     m_stepped = false;
@@ -363,6 +375,7 @@ void UploadWorker::gotoStep(Step s)
             if (o.value(QStringLiteral("manage")).toBool()) {
                 emit log(QStringLiteral("已在章节管理页"));
                 gotoStep(m_index < 0 ? S_Volume : S_NewChapter);
+                // 注意：S_Volume 结束时统一走 enterChapter()，首章在那里才真正开章
                 return;
             }
             if (o.value(QStringLiteral("editor")).toBool()
@@ -476,7 +489,7 @@ void UploadWorker::gotoStep(Step s)
     case S_Volume: {
         if (m_volume.isEmpty()) {
             emit log(QStringLiteral("未指定分卷，沿用页面上当前选中的卷"));
-            gotoStep(S_NewChapter);
+            enterChapter();
             break;
         }
         runJs(QStringLiteral("__fq.pickVolume(%1)").arg(jsStr(m_volume)),
@@ -486,13 +499,13 @@ void UploadWorker::gotoStep(Step s)
                   const QJsonObject o = v.toObject();
                   if (ok && o.value(QStringLiteral("ok")).toBool()) {
                       emit log(QStringLiteral("已选卷：%1").arg(o.value(QStringLiteral("picked")).toString()));
-                      gotoStep(S_NewChapter);
+                      enterChapter();
                       return;
                   }
                   const QString why = ok ? o.value(QStringLiteral("why")).toString() : v.toString();
                   if (why == QLatin1String("no-volume")) {
                       emit log(QStringLiteral("页面上没有分卷下拉（可能是单卷书），跳过选卷"));
-                      gotoStep(S_NewChapter);
+                      enterChapter();
                       return;
                   }
                   QStringList opts;
@@ -517,10 +530,16 @@ void UploadWorker::gotoStep(Step s)
                       return;
                   const QString cur = ok ? v.toString() : QString();
                   if (!m_volume.isEmpty() && !cur.isEmpty() && cur.indexOf(m_volume) < 0) {
-                      emit log(QStringLiteral("当前卷是「%1」，与目标卷不一致，重新选卷").arg(cur));
-                      gotoStep(S_Volume);
-                      return;
+                      if (m_volFix < 3) {
+                          ++m_volFix;
+                          emit log(QStringLiteral("当前卷是「%1」，与目标卷不一致，重新选卷（%2/3）")
+                                       .arg(cur).arg(m_volFix));
+                          gotoStep(S_Volume);
+                          return;
+                      }
+                      emit log(QStringLiteral("⚠ 分卷反复对不上（当前「%1」），继续按当前卷上传").arg(cur));
                   }
+                  m_volFix = 0;
                   // 番茄的「新建章节」是 window.open 开新标签：先记下现有标签 id，
                   // 点完再去找新出现的那个，否则会一直在旧标签（章节列表）上等编辑页。
                   m_cdp->fetchTargets([this, gen](bool, const QJsonArray &pages, const QString &) {
@@ -582,6 +601,10 @@ void UploadWorker::gotoStep(Step s)
     }
 
     case S_Fill: {
+        if (m_cur.body.trimmed().isEmpty()) {
+            failChapter(QStringLiteral("第 %1 章正文是空的（检查源 txt）").arg(m_cur.no));
+            break;
+        }
         runJs(QStringLiteral("__fq.fillChapter(%1,%2)")
                   .arg(m_cur.no)
                   .arg(jsStr(m_cur.title)),
@@ -604,6 +627,15 @@ void UploadWorker::gotoStep(Step s)
                   emit log(QStringLiteral("  章号=%1　标题=%2")
                                .arg(o.value(QStringLiteral("no")).toVariant().toString(),
                                     o.value(QStringLiteral("title")).toString()));
+                  // 编辑页 React 挂载慢时，写进去会被重渲染清掉 —— 回读对不上就再写一次
+                  const QString gotTitle = o.value(QStringLiteral("title")).toString().trimmed();
+                  if (gotTitle != m_cur.title.trimmed() && m_fillTry < 3) {
+                      ++m_fillTry;
+                      emit log(QStringLiteral("  标题没写进去（页面回读「%1」），重试 %2/3")
+                                   .arg(gotTitle).arg(m_fillTry));
+                      scheduleNext(S_Fill, 900);
+                      return;
+                  }
 
                   runJs(QStringLiteral("__fq.fillBody(%1)").arg(jsStr(m_cur.body)),
                         [this, gen](bool ok2, const QJsonValue &v2) {
@@ -626,6 +658,15 @@ void UploadWorker::gotoStep(Step s)
                                 return;
                             }
                             m_filled = true;      // 之后出任何岔子都要先存草稿
+                            if (qEnvironmentVariableIsSet("CU_DRY")) {
+                                emit log(QStringLiteral("CU_DRY：填表完成，测试到此为止（未点下一步、未发布）"));
+                                if (!m_editorTarget.isEmpty())
+                                    m_cdp->closeTarget(m_editorTarget);
+                                m_running = false;
+                                ++m_gen;
+                                emit finished(m_ok, m_fail);
+                                return;
+                            }
                             scheduleNext(S_Next, 500);
                         });
               });

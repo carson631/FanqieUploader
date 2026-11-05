@@ -74,6 +74,8 @@ private:
     void gotoStep(Step s);
     void scheduleNext(Step s, int ms);
     void beginChapter(int index);
+    // 首章（m_index < 0）由这里正式开章；之后各章走 S_NewChapter
+    void enterChapter();
     void failChapter(const QString &why);
     void abortWithDraft(const QString &why, bool risk);   // 先存草稿再中断
     void finishChapter(bool ok, const QString &msg);
@@ -97,6 +99,8 @@ private:
     int    m_fail = 0;
     int    m_ticks = 0;
     int    m_retry = 0;
+    int    m_fillTry = 0;            // 同一步填表重试次数（React 挂载慢时用）
+    int    m_volFix = 0;             // 分卷自动纠正次数，防止来回打转
     int    m_switchRetry = 0;        // 起步时「切回章节管理标签」的尝试次数
     bool   m_stepped = false;        // 本章是否已点过「下一步」
     bool   m_filled = false;         // 本章正文是否已写入（决定异常时要不要存草稿）

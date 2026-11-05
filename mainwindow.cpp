@@ -185,6 +185,25 @@ static QString cleanBody(const QString &s)
     return t;
 }
 
+namespace {
+
+// 书名/卷名的合理性检查：后台导航条被整段抓下来时会带好几个空格，
+// 这种值不写进设置、也不从设置里恢复。
+bool saneName(const QString &raw)
+{
+    const QString t = raw.trimmed();
+    if (t.isEmpty() || t.size() > 30)
+        return false;
+    int spaces = 0;
+    for (const QChar &c : t) {
+        if (c.isSpace())
+            ++spaces;
+    }
+    return spaces < 2;
+}
+
+}   // namespace
+
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setWindowTitle(QStringLiteral("番茄章节上传工具"));
@@ -252,7 +271,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
                                              QStringLiteral("MMM d yyyy"));
     appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
-                  .arg(QStringLiteral("1.0.3"),
+                  .arg(QStringLiteral("1.0.4"),
                        buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
                                           : QString::fromLatin1(__DATE__).simplified(),
                        QString::fromLatin1(__TIME__)));
@@ -323,7 +342,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.3"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.4"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);
@@ -682,11 +701,18 @@ void MainWindow::refreshBooks()
         appendLog(QStringLiteral("未连接，无法刷新书架"));
         return;
     }
+    // 只有作品管理页才有书架；章节管理/编辑页读出来的是导航条文本
     const QString expr = QStringLiteral("(function(){if(!window.__fq){") + m_siteJs
-                         + QStringLiteral("}return (__fq.books());})()");
+                         + QStringLiteral("}const st=__fq.stage();")
+                         + QStringLiteral("if(!st.books)return {__notBooks:true};")
+                         + QStringLiteral("return (__fq.books());})()");
     m_cdp->evaluate(expr, [this](bool ok, const QJsonValue &v, const QString &err) {
         if (!ok) {
             appendLog(QStringLiteral("读书架失败：%1").arg(err));
+            return;
+        }
+        if (v.isObject() && v.toObject().value(QStringLiteral("__notBooks")).toBool()) {
+            appendLog(QStringLiteral("当前不在作品管理页，跳过读书名（保留原值）"));
             return;
         }
         const QStringList list = [&v]() {
@@ -696,7 +722,7 @@ void MainWindow::refreshBooks()
             return out;
         }();
         if (list.isEmpty()) {
-            appendLog(QStringLiteral("没读到书名——如果当前在章节管理页，先点上方的「番茄小说网」回到作品管理页再刷新"));
+            appendLog(QStringLiteral("没读到书名（当前不在作品管理页就正常，书名保留原值）"));
             return;
         }
         const QString keep = m_bookCombo->currentText();
@@ -1024,8 +1050,10 @@ void MainWindow::saveSettings()
 {
     QSettings s;
     s.beginGroup(QStringLiteral("fanqie"));
-    s.setValue(QStringLiteral("book"), m_bookCombo->currentText());
-    s.setValue(QStringLiteral("volume"), m_volCombo->currentText());
+    const QString book = m_bookCombo->currentText().trimmed();
+    const QString vol  = m_volCombo->currentText().trimmed();
+    s.setValue(QStringLiteral("book"), saneName(book) ? book : QString());
+    s.setValue(QStringLiteral("volume"), saneName(vol) ? vol : QString());
     s.setValue(QStringLiteral("dir"), m_dirEdit->text());
     s.setValue(QStringLiteral("date"), m_dateEdit->date());
     s.setValue(QStringLiteral("perDay"), m_perDay->value());
@@ -1041,8 +1069,12 @@ void MainWindow::loadSettings()
     QSettings s;
     s.beginGroup(QStringLiteral("fanqie"));
     const QString dir = s.value(QStringLiteral("dir")).toString();
-    m_bookCombo->setCurrentText(s.value(QStringLiteral("book")).toString());
-    m_volCombo->setCurrentText(s.value(QStringLiteral("volume")).toString());
+    const QString book = s.value(QStringLiteral("book")).toString();
+    const QString vol = s.value(QStringLiteral("volume")).toString();
+    if (saneName(book))
+        m_bookCombo->setCurrentText(book);
+    if (saneName(vol))
+        m_volCombo->setCurrentText(vol);
     if (!dir.isEmpty())
         m_dirEdit->setText(dir);
     const QDate d = s.value(QStringLiteral("date")).toDate();
@@ -1096,6 +1128,26 @@ void MainWindow::runAutoTest(const QString &shot)
         m_toSpin->setValue(qBound(m_toSpin->minimum(), t, m_toSpin->maximum()));
         applyRange(true);
     }
+    if (!qEnvironmentVariable("CU_RUN").isEmpty()) {
+        appendLog(QStringLiteral("CU_RUN：自动连接已开着的浏览器并开始上传（CU_DRY 时只填表）"));
+        connect(m_cdp, &CdpClient::connected, this, [this]() {
+            QTimer::singleShot(700, this, [this]() {
+                if (m_startBtn->isEnabled())
+                    m_startBtn->click();
+            });
+        });
+        const QString runShot = qEnvironmentVariable("CU_SHOT");
+        connect(m_worker, &UploadWorker::finished, this, [this, runShot](int ok, int fail) {
+            flushLog();
+            appendLog(QStringLiteral("CU_RUN 结束：成功 %1　失败 %2").arg(ok).arg(fail));
+            if (!runShot.isEmpty())
+                grab().save(runShot);
+            QTimer::singleShot(400, qApp, &QApplication::quit);
+        });
+        m_cdp->discoverAndConnect();
+        return;
+    }
+
     QTimer::singleShot(900, this, [this, shot]() {
         if (!shot.isEmpty()) {
             const QPixmap pm = grab();
