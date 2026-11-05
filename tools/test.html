@@ -394,6 +394,36 @@ async function run() {
   check('Q5 连续两次同一批元素才算稳定',
         rd3.ready === true && rd3.stableMs >= 100, JSON.stringify(rd3));
 
+  // R 组：Arco 时间面板的「确定」与 React 真实值（v1.0.8 的两个核心修复）
+  {
+    const tw = document.createElement('div');
+    tw.className = 'arco-trigger';
+    tw.style.cssText = 'position:fixed;left:0;top:0;width:220px;height:140px;background:#fff;z-index:9';
+    tw.innerHTML =
+      '<div class="arco-timepicker-list" style="height:40px"><ul><li>' +
+      '<div class="arco-timepicker-cell-inner">19</div></li></ul></div>' +
+      '<div class="arco-timepicker-list" style="height:40px"><ul><li>' +
+      '<div class="arco-timepicker-cell-inner">00</div></li></ul></div>' +
+      '<div class="arco-timepicker-footer" style="height:40px">' +
+      '<button id="btnNow">此刻</button><button id="btnOk">确定</button></div>';
+    document.body.appendChild(tw);
+    let okClicked = 0;
+    tw.querySelector('#btnOk').addEventListener('click', () => { okClicked++; });
+
+    const panel = tw.querySelector('.arco-timepicker-list');
+    const done = await __fq._internals.confirmPicker(panel);
+    check('R1 能点中时间面板 footer 的「确定」', done === true && okClicked === 1,
+          'done=' + done + ' clicks=' + okClicked);
+
+    const fake = document.createElement('input');
+    fake.setAttribute('value', '19:05');
+    fake['__reactProps$test'] = { value: '19:00' };
+    const rv = __fq._internals.reactValue(fake);
+    check('R2 校验读的是 React 真实 state 而非显示值',
+          rv === '19:00' && fake.value === '19:05', 'state=' + rv + ' shown=' + fake.value);
+    tw.remove();
+  }
+
   const fails = results.filter(x => x.startsWith('FAIL'));
   document.getElementById('out').textContent =
     results.join('\n') + '\n\n合计 ' + results.length + ' 项，失败 ' + fails.length + ' 项';

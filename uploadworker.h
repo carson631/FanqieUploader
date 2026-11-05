@@ -71,7 +71,7 @@ private:
 
     using JsCb = std::function<void(bool ok, const QJsonValue &v)>;
 
-    void runJs(const QString &call, JsCb cb);
+    void runJs(const QString &call, JsCb cb, int timeoutMs = 25000);
     void pollJs(const QString &call,
                 std::function<bool(const QJsonValue &)> pred,
                 int intervalMs, int maxTicks,

@@ -36,7 +36,7 @@ QString stepsText(const QJsonValue &v)
 UploadWorker::UploadWorker(CdpClient *cdp, QObject *parent)
     : QObject(parent), m_cdp(cdp) {}
 
-void UploadWorker::runJs(const QString &call, JsCb cb)
+void UploadWorker::runJs(const QString &call, JsCb cb, int timeoutMs)
 {
     if (!m_cdp || !m_cdp->isConnected()) {
         if (cb)
@@ -54,7 +54,7 @@ void UploadWorker::runJs(const QString &call, JsCb cb)
             return;
         }
         cb(true, v);
-    });
+    }, timeoutMs);
 }
 
 void UploadWorker::pollJs(const QString &call,
@@ -905,6 +905,10 @@ void UploadWorker::gotoStep(Step s)
             }
             m_retry = 0;
             const QString date = m_cur.date.toString(QStringLiteral("yyyy-MM-dd"));
+            // 设定时要连点日历/时间面板，全是 setTimeout 串起来的；浏览器窗口在
+            // 后台时 Chromium 会把 timeout 深度节流，整段就会「卡住」直到 JS 超时。
+            // 先把标签提到前台，保证定时器按正常节奏跑。
+            m_cdp->bringToFront();
             runJs(QStringLiteral("__fq.setPublish(%1,%2)").arg(jsStr(date), jsStr(m_cur.time)),
                   [this, gen, date](bool ok2, const QJsonValue &v2) {
                       if (gen != m_gen || !m_running)

@@ -271,7 +271,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
                                              QStringLiteral("MMM d yyyy"));
     appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
-                  .arg(QStringLiteral("1.0.7"),
+                  .arg(QStringLiteral("1.0.8"),
                        buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
                                           : QString::fromLatin1(__DATE__).simplified(),
                        QString::fromLatin1(__TIME__)));
@@ -342,7 +342,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.7"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.8"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);
@@ -1166,6 +1166,12 @@ void MainWindow::runAutoTest(const QString &shot)
                 return;
             QTimer::singleShot(400, qApp, &QApplication::quit);
         });
+        // CU_LAUNCH：走用户真实路径——点「启动浏览器」自己拉起 Edge 再连接
+        // （不设则复用已经开着的浏览器）
+        if (qEnvironmentVariableIsSet("CU_LAUNCH")) {
+            QTimer::singleShot(600, this, [this]() { toggleConnection(); });
+            return;
+        }
         m_cdp->discoverAndConnect();
         return;
     }

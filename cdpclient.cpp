@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QJsonDocument>
+#include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
@@ -12,6 +13,11 @@
 CdpClient::CdpClient(QObject *parent)
     : QObject(parent)
 {
+    // 不要走系统代理：本机若装了 Clash / v2ray 之类的全局代理，QNetworkAccessManager
+    // 会把 127.0.0.1:9333 的请求也丢给代理，请求挂到超时才回 → 界面上表现为
+    // 点「启动浏览器」后长时间没动静。CDP 永远只连本机，必须 NoProxy。
+    m_net.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+
     connect(&m_ws, &QWebSocket::connected, this, [this]() {
         log(QStringLiteral("调试通道已连接"));
     });
@@ -180,6 +186,16 @@ void CdpClient::evaluate(const QString &js, EvalCallback cb, int timeoutMs)
         m_pending.erase(it);
         cb2(false, QJsonValue(), QStringLiteral("JS 执行超时"));
     });
+}
+
+void CdpClient::bringToFront()
+{
+    if (!isConnected())
+        return;
+    QJsonObject msg;
+    msg.insert(QStringLiteral("id"), m_nextId++);
+    msg.insert(QStringLiteral("method"), QStringLiteral("Page.bringToFront"));
+    m_ws.sendTextMessage(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
 }
 
 void CdpClient::handleMessage(const QString &text)

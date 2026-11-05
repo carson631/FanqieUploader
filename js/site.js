@@ -878,13 +878,52 @@
     return false;
   }
 
+  // 读 React 受控组件的真实值（input.value 只是显示，可能被手写 value 骗过）。
+  // 拿不到就返回 null，调用方退回显示值判断。
+  function reactValue(el) {
+    try {
+      const k = Object.keys(el).find((x) => x.indexOf('__reactProps') === 0);
+      const p = k ? el[k] : null;
+      if (p && typeof p.value === 'string') return p.value;
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // 点浮层里的「确定」：Arco 带 footer 的 TimePicker 必须点确定才会把面板里的
+  // 临时选择提交成真正的值（只点小时/分钟只是改面板高亮，输入框和状态都不变）。
+  // 定位顺序：浮层根(.arco-trigger) → footer → 文字匹配 → 最后一个按钮兜底。
+  async function confirmPicker(panel) {
+    const root = panel.closest('.arco-trigger') || panel;
+    const visible = (el) => vis(el);
+    const norm = (s) => (s || '').replace(/\s+/g, '');
+    let btn = [...root.querySelectorAll('button')].filter(visible)
+      .find((b) => norm(b.textContent) === '确定');
+    if (!btn) {
+      const footer = root.querySelector('.arco-timepicker-footer, .arco-picker-footer');
+      if (footer) {
+        const fb = [...footer.querySelectorAll('button')].filter(visible);
+        btn = fb[fb.length - 1] || null;
+      }
+    }
+    if (!btn) {
+      const all = [...root.querySelectorAll('button')].filter(visible);
+      btn = all.length ? all[all.length - 1] : null;
+    }
+    if (!btn) return false;
+    btn.click();
+    await sleep(380);
+    return true;
+  }
+
   async function pickTimeByPanel(input, timeStr) {
     const hh = timeStr.slice(0, 2);
     const mi = timeStr.slice(3, 5) || '00';
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       await openPicker(input, timePanel);
       const panel = timePanel();
-      if (!panel) return false;
+      if (!panel) continue;
       const lists = [...panel.querySelectorAll('.arco-timepicker-list')].filter(vis);
       if (lists.length < 2) return false;
       const pick = async (list, txt) => {
@@ -897,10 +936,12 @@
       };
       if (!(await pick(lists[0], hh))) return false;
       if (!(await pick(lists[1], mi))) return false;
-      const okBtn = [...panel.querySelectorAll('button')]
-        .find((b) => (b.innerText || '').trim() === '确定');
-      if (okBtn) okBtn.click();
-      await sleep(450);
+      await sleep(180);
+
+      // ← 关键：必须点确定，否则值根本没提交（老版本漏了这步，日志说改了、实际没改）
+      if (!(await confirmPicker(panel))) return false;
+      // 点完确定面板会收起；再等一次重渲染后回读，值必须是目标
+      await sleep(420);
       if ((input.value || '').indexOf(timeStr) === 0) return true;
     }
     return false;
@@ -929,7 +970,7 @@
   }
 
   // 调试用：单独跑日期/时间选择，返回耗时（真机排障时很有用）
-  FQ._internals = { openPicker, closePickers, datePanel, timePanel, pickDateByPanel, pickTimeByPanel, dayHighlighted, timeHighlighted };
+  FQ._internals = { openPicker, closePickers, datePanel, timePanel, pickDateByPanel, pickTimeByPanel, dayHighlighted, timeHighlighted, confirmPicker, reactValue };
   FQ._pickDate = async (d) => {
     const el = [...document.querySelectorAll('input')].filter(vis)
       .find((e) => /日期/.test(e.getAttribute('placeholder') || ''));
@@ -1033,15 +1074,25 @@
     let dateOk = !!dateEl && dateEl.value === dateStr;
     let timeOk = !!timeEl && (timeEl.value || '').indexOf(timeStr) === 0;
 
-    // 再看面板高亮：这条能戳穿「input 显示改了、Arco 状态没改」的假通过
-    if (dateOk && dateEl) {
+    // 4.1) 直接读 React 组件的 props.value（真正的受控状态）。
+    // input.value 只反映「显示」，picker 里点没点确定它都可能对；
+    // 而组件 state 才是「确认发布」真正提交的东西。
+    const dReal = dateEl ? reactValue(dateEl) : null;
+    const tReal = timeEl ? reactValue(timeEl) : null;
+    if (dReal !== null) dateOk = dReal === dateStr;
+    if (tReal !== null) timeOk = (tReal || '').indexOf(timeStr) === 0;
+
+    // 4.2) 读不到 state（页面改版）时才退回「重开面板看高亮」。
+    // 注意：打开面板会让 Arco 把输入框显示值回写成 state，
+    // 所以这条只能在前面都没结论时用，不能当唯一判据。
+    if (dateOk && dReal === null && dateEl) {
       await openPicker(dateEl, datePanel);
       const hit = await dayHighlighted(dateStr);
       if (hit === false) dateOk = false;
       await closePickers();
       await sleep(200);
     }
-    if (timeOk && timeEl) {
+    if (timeOk && tReal === null && timeEl) {
       await openPicker(timeEl, timePanel);
       const hit = await timeHighlighted(timeStr);
       if (hit === false) timeOk = false;
@@ -1049,8 +1100,8 @@
       await sleep(200);
     }
 
-    res.dateVal = dateEl ? dateEl.value : '';
-    res.timeVal = timeEl ? timeEl.value : '';
+    res.dateVal = dReal !== null ? dReal : (dateEl ? dateEl.value : '');
+    res.timeVal = tReal !== null ? tReal : (timeEl ? timeEl.value : '');
     res.ok = dateOk && timeOk
       && res.dateVal === dateStr
       && res.timeVal.indexOf(timeStr) === 0;

@@ -49,6 +49,11 @@ public:
 
     void evaluate(const QString &js, EvalCallback cb, int timeoutMs = 25000);
 
+    // 把目标标签提到前台。浏览器窗口在后台时 Chromium 会把 setTimeout 深度节流
+    // （最长 1 分钟才触发一次），跑长流程的 JS（如设发布定时）就会「卡住」。
+    // 不关心回执，发出去即可。
+    void bringToFront();
+
 signals:
     void log(const QString &msg);
     void connected(const QString &url, const QString &title);
