@@ -472,6 +472,13 @@ void MainWindow::buildUi()
     c3->addWidget(h3);
 
     connect(m_browseBtn, &QPushButton::clicked, this, &MainWindow::pickFolder);
+    connect(m_dirEdit, &QLineEdit::returnPressed, this, [this]() {
+        const QString d = m_dirEdit->text().trimmed();
+        if (!d.isEmpty()) {
+            m_dirEdit->setText(QDir::toNativeSeparators(d));
+            loadChapters(d);
+        }
+    });
     connect(m_fromSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { applyRange(false); });
     connect(m_toSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { applyRange(false); });
     connect(m_perDay, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { reschedule(); });
