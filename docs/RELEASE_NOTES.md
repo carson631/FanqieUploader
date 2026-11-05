@@ -1,3 +1,30 @@
+# v1.0.3 — 番茄章节上传工具
+
+## 本版改了什么
+
+| 改动 | 说明 |
+|---|---|
+| 启动日志打版本+构建时间 | 第一行固定输出 `FanqieUploader v1.0.3　构建 2026-11-05 13:36`，以后一眼能看出跑的是不是新编译的版本（上一版就是因为旧进程还开着，点上传用的还是老代码） |
+| 接管新标签更宽容 | 新标签刚建出来时 URL 可能是空或先落到别的路由，等 2.5 秒还没有 `/publish/` 精确匹配时，就先接住那个新开的番茄页，再由 `stage()` 判定是不是编辑页 |
+| 版本号 | 1.0.2 → 1.0.3 |
+
+## 真机验证
+
+`tools/followtest/`（直接调 `CdpClient`，在真实番茄后台上跑）：
+
+```
+点【新建章节】…
+newChapter 返回：[{"ok":true,"text":"新建章节"}]
+[cdp] 目标页：https://fanqienovel.com/main/writer/<书id>/publish/?enter_from=newchapter
+followNewTarget 成功(825ms)，新标签 A3A0CF3A…
+stage: editor=1 bodyEditor=1 manage=0 publish=0
+PASS 编辑页在新标签里可识别
+```
+
+注意新标签的 URL 是 `/publish/?enter_from=newchapter`（没有章号），所以判定用 `包含 /publish/`，不能去解析章 id。
+
+---
+
 # v1.0.2 — 番茄章节上传工具
 
 修掉「新建章节后找不到编辑页」——番茄是把编辑页开在**新标签**里，老版本一直在旧标签上找。

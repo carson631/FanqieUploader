@@ -250,22 +250,24 @@ void CdpClient::followNewTarget(
     const QStringList &knownIds, const QString &urlPart, int waitMs,
     std::function<void(bool ok, const QString &targetId, const QString &why)> cb)
 {
-    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + waitMs;
+    const qint64 started  = QDateTime::currentMSecsSinceEpoch();
+    const qint64 deadline = started + waitMs;
     auto step = std::make_shared<std::function<void()>>();
-    *step = [this, knownIds, urlPart, deadline, cb, step]() {
-        fetchTargets([this, knownIds, urlPart, deadline, cb, step](
+    *step = [this, knownIds, urlPart, deadline, started, cb, step]() {
+        fetchTargets([this, knownIds, urlPart, deadline, started, cb, step](
                          bool ok, const QJsonArray &pages, const QString &why) {
             if (!ok) {
                 cb(false, QString(), why);
                 return;
             }
+            QJsonObject fallback;           // 新开但不是精确匹配的番茄页
+            QString     fallbackId;
             for (const QJsonValue &v : pages) {
                 const QJsonObject o = v.toObject();
                 const QString id = o.value(QStringLiteral("id")).toString();
                 const QString u = o.value(QStringLiteral("url")).toString();
-                if (!u.contains(urlPart))
-                    continue;
-                if (id == m_targetId) {
+                const bool exact = u.contains(urlPart);
+                if (exact && id == m_targetId) {
                     // 原地跳到编辑页（不是新标签），连接没变
                     m_url = u;
                     cb(true, id, QString());
@@ -273,14 +275,31 @@ void CdpClient::followNewTarget(
                 }
                 if (knownIds.contains(id))
                     continue;               // 之前就开着的旧标签，不碰
-                connectToTarget(o);
-                QTimer::singleShot(800, this, [this, id, cb]() {
-                    cb(isConnected(), id,
+                if (exact) {
+                    connectToTarget(o);
+                    QTimer::singleShot(800, this, [this, id, cb]() {
+                        cb(isConnected(), id,
+                           isConnected() ? QString() : QStringLiteral("新标签连不上"));
+                    });
+                    return;
+                }
+                // 新标签刚建出来时 URL 可能是空/about:blank，或先落在别的路由上；
+                // 记下来，等 2.5 秒还没有精确匹配就先接住它（真正的判定交给 stage()）
+                if (fallbackId.isEmpty() && !u.startsWith(QLatin1String("about:"))
+                    && u.contains(QLatin1String("fanqienovel.com")))
+                    fallback = o, fallbackId = id;
+            }
+
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (!fallbackId.isEmpty() && now - started >= 2500) {
+                connectToTarget(fallback);
+                QTimer::singleShot(800, this, [this, fallbackId, cb]() {
+                    cb(isConnected(), fallbackId,
                        isConnected() ? QString() : QStringLiteral("新标签连不上"));
                 });
                 return;
             }
-            if (QDateTime::currentMSecsSinceEpoch() >= deadline) {
+            if (now >= deadline) {
                 cb(false, QString(),
                    QStringLiteral("等新标签超时（没出现 URL 含「%1」的页面）").arg(urlPart));
                 return;

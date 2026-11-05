@@ -249,9 +249,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         m_summary->setText(QStringLiteral("完成：成功 %1，失败 %2").arg(ok).arg(fail));
     });
 
-    loadSettings();
+    const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
+                                             QStringLiteral("MMM d yyyy"));
+    appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
+                  .arg(QStringLiteral("1.0.3"),
+                       buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
+                                          : QString::fromLatin1(__DATE__).simplified(),
+                       QString::fromLatin1(__TIME__)));
     setConnected(false, QStringLiteral("未连接"));
     appendLog(QStringLiteral("就绪。首次使用：点「启动浏览器」，在弹出的浏览器里登录番茄作家账号。"));
+    loadSettings();
 }
 
 MainWindow::~MainWindow()
@@ -316,7 +323,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.2"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.3"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);

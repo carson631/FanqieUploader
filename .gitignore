@@ -12,3 +12,6 @@ tools/_edgeprof/
 tools/cdp_tabtest/*.exe
 tools/cdp_tabtest/moc_*.cpp
 tools/cdp_tabtest/out.txt
+tools/followtest/*.exe
+tools/followtest/moc_*.cpp
+tools/followtest/out.txt
