@@ -328,6 +328,9 @@ void UploadWorker::enterChapter()
 
 void UploadWorker::beginChapter(int index)
 {
+    // 必须把 m_index 同步成当前章下标：否则首章（经 enterChapter 进来）m_index
+    // 一直是 -1，advanceChapter 的 ++m_index 慢一拍，第一章会被传两遍。
+    m_index = index;
     m_cur = m_jobs.at(index);
     m_retry = 0;
     m_fillTry = 0;

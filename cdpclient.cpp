@@ -20,7 +20,12 @@ CdpClient::CdpClient(QObject *parent)
         emit disconnected();
     });
     connect(&m_ws, &QWebSocket::textMessageReceived, this, &CdpClient::handleMessage);
-    connect(&m_ws, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
+    connect(&m_ws, &QWebSocket::errorOccurred, this,
+            [this](QAbstractSocket::SocketError err) {
+        // 关编辑标签时连接会被服务端断开，RemoteHostClosed 是正常收尾，
+        // 不是故障，别把它当错误弹出来吓人
+        if (err == QAbstractSocket::RemoteHostClosedError)
+            return;
         emit failed(QStringLiteral("WebSocket 错误：%1").arg(m_ws.errorString()));
     });
 }

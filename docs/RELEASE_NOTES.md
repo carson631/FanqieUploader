@@ -1,3 +1,22 @@
+# v1.0.6 — 番茄章节上传工具
+
+## 本版修的关键问题：只选 1 章却传了两遍
+
+日志特征：第 27 章发布成功、关掉编辑标签后，**同一章又从头跑了一遍**
+（第二次 `── 第 27 章《27归队》…`），最后报 `=== 全部结束：成功 2，失败 0 ===`。
+
+| 层 | 说明 | 现在 |
+|---|---|---|
+| 章下标慢一拍 | `beginChapter(index)` 一直没把 `m_index` 同步成当前章下标——首章经 `enterChapter()` 进来时 `m_index` 仍是 -1，于是 `advanceChapter()` 的 `++m_index` 只走到 0，`0 < 1` 判定「还有下一章」，把**第 0 章再传一遍**；多章批量时表现就是第一章传两次、总数多一 | `beginChapter()` 开头补上 `m_index = index` |
+| WebSocket 报错噪音 | 关编辑标签时连接被服务端断开，`errorOccurred(RemoteHostClosedError)` 被当成故障弹出 `✗ WebSocket 错误：The remote host closed the connection` | 忽略 `RemoteHostClosedError`（正常收尾），其余错误照报 |
+
+## 验证
+
+- 编译 0 错误 0 警告（MinGW 13.1 / Qt 6.8.3）
+- 逻辑推演：1 章 → 成功 1 后 `advanceChapter` 直接结束（`成功 1`）；N 章批量每章恰好一次
+
+---
+
 # v1.0.5 — 番茄章节上传工具
 
 ## 本版修的关键问题：填进去的章号/标题会「消失」
