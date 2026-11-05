@@ -9,3 +9,6 @@ _dist*.png
 tools/_edgeprof/
 *.user
 .qtcreator/
+tools/cdp_tabtest/*.exe
+tools/cdp_tabtest/moc_*.cpp
+tools/cdp_tabtest/out.txt

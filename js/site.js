@@ -137,23 +137,27 @@
   // 是否已经在某个写作/管理页
   // 注意：书籍列表页的书卡上也有「章节管理」四个字，不能拿它当判据，
   // 只有出现「新建章节」按钮或分卷下拉才算真的在章节管理页。
+  // 另外编辑页顶部也显示「书名 第二卷：名字」和分卷下拉，所以必须再排掉编辑页/发布页。
   FQ.stage = function () {
     const t = T(document.body);
     const hasNew = !!findByText(['新建章节'], { maxW: 280, maxH: 90 });
     const hasVol = pool(false).some((e) => isVol(T(e)));
     const hasTitle = !!document.querySelector('input[placeholder*="标题"],textarea[placeholder*="标题"]');
+    const hasBody = !!editorEl();
     const hasPub = t.indexOf('发布设置') >= 0;
     const hasCorrect = t.indexOf('智能纠错') >= 0;
-    const manage = hasNew || hasVol;
+    const inEditor = hasTitle || hasPub;
+    const manage = (hasNew || hasVol) && !inEditor;
     return {
       url: location.href,
       newChapter: hasNew,
       volume: hasVol,
       editor: hasTitle,
+      bodyEditor: hasBody,
       publish: hasPub,
       correct: hasCorrect,
       manage: manage,
-      books: /book-manage/.test(location.href) && !manage,
+      books: /book-manage/.test(location.href) && !manage && !inEditor,
     };
   };
 

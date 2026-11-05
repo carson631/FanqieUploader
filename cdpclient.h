@@ -31,11 +31,21 @@ public:
 
     bool isConnected() const { return m_ws.state() == QAbstractSocket::ConnectedState; }
     QString currentUrl() const { return m_url; }
+    QString currentTargetId() const { return m_targetId; }
 
     void discoverAndConnect();          // 找 fanqienovel.com 的 page，连上
     void ensureTarget(const TargetFilter &filter,
                       std::function<void(bool ok, const QString &why)> cb);  // 切 target（开了新 tab 时用）
     void close();
+
+    // 番茄点「新建章节 / 新建卷」是 window.open 开**新标签页**，旧标签还停在列表页。
+    // 用法：动作前先 fetchTargets 记下已知 id，动作后 followNewTarget 接住新标签。
+    using ListCb = std::function<void(bool ok, const QJsonArray &pages, const QString &why)>;
+    void fetchTargets(ListCb cb);
+    void followNewTarget(const QStringList &knownIds, const QString &urlPart, int waitMs,
+                         std::function<void(bool ok, const QString &targetId, const QString &why)> cb);
+    // 关掉自己开出来的编辑标签（走 browser 级会话的 Target.closeTarget）
+    void closeTarget(const QString &targetId);
 
     void evaluate(const QString &js, EvalCallback cb, int timeoutMs = 25000);
 
@@ -55,6 +65,7 @@ private:
     QNetworkAccessManager m_net;
     QWebSocket            m_ws;
     QString               m_url;
+    QString               m_targetId;
     int                   m_port = 9333;
     int                   m_nextId = 1;
     QHash<int, EvalCallback> m_pending;

@@ -272,6 +272,10 @@ void UploadWorker::advanceChapter()
         return;
     ++m_index;
     if (m_index >= m_jobs.size()) {
+        if (!m_editorTarget.isEmpty()) {
+            m_cdp->closeTarget(m_editorTarget);
+            m_editorTarget.clear();
+        }
         m_running = false;
         ++m_gen;
         emit progress(m_ok + m_fail, m_jobs.size());
@@ -279,7 +283,37 @@ void UploadWorker::advanceChapter()
         emit finished(m_ok, m_fail);
         return;
     }
-    beginChapter(m_index);
+    const int gen = m_gen;
+    returnToManage([this, gen](bool) {
+        if (gen != m_gen || !m_running)
+            return;
+        beginChapter(m_index);
+    });
+}
+
+// 本章提交完：关掉自己开出来的编辑标签，把调试连接切回章节管理页。
+// 不关的话 150 章会攒出 150 个标签，而且下一章会在错误的标签上找「新建章节」。
+void UploadWorker::returnToManage(std::function<void(bool ok)> cb)
+{
+    const QString editor = m_editorTarget;
+    m_editorTarget.clear();
+    if (!editor.isEmpty())
+        m_cdp->closeTarget(editor);
+
+    QTimer::singleShot(editor.isEmpty() ? 0 : 800, this, [this, cb]() {
+        m_cdp->ensureTarget(
+            [](const QString &u) {
+                return u.contains(QLatin1String("fanqienovel.com"))
+                       && !u.contains(QLatin1String("/publish/"));
+            },
+            [this, cb](bool ok, const QString &why) {
+                if (!ok)
+                    emit log(QStringLiteral("  ⚠ 没切回章节管理页：%1").arg(why));
+                else
+                    emit log(QStringLiteral("  已回到章节管理页"));
+                cb(ok);
+            });
+    });
 }
 
 void UploadWorker::beginChapter(int index)
@@ -287,6 +321,7 @@ void UploadWorker::beginChapter(int index)
     m_cur = m_jobs.at(index);
     m_retry = 0;
     m_ticks = 0;
+    m_switchRetry = 0;
     m_stepped = false;
     m_filled = false;
     emit log(QStringLiteral("── 第 %1 章《%2》%3 字，定时 %4 %5")
@@ -332,6 +367,24 @@ void UploadWorker::gotoStep(Step s)
             }
             if (o.value(QStringLiteral("editor")).toBool()
                 || o.value(QStringLiteral("publish")).toBool()) {
+                // 常见情况：调试连接还停在上一章自动打开的编辑标签上。
+                // 先尝试切回章节管理那个标签（不关任何标签，避免丢用户手写内容）。
+                if (m_switchRetry < 2) {
+                    ++m_switchRetry;
+                    emit log(QStringLiteral("⚠ 当前停在编辑页/发布页，尝试切回章节管理标签…"));
+                    returnToManage([this, gen](bool ok2) {
+                        if (gen != m_gen || !m_running)
+                            return;
+                        if (ok2) {
+                            gotoStep(S_Prepare);
+                            return;
+                        }
+                        emit log(QStringLiteral("✗ 只有编辑页标签，没有可用的章节管理页，请手动切回去再开始"));
+                        m_running = false;
+                        emit finished(m_ok, m_fail);
+                    });
+                    return;
+                }
                 emit log(QStringLiteral("⚠ 当前停在编辑页/发布页，为避免重复提交，请先手动回到「章节管理」页"));
                 m_running = false;
                 emit finished(m_ok, m_fail);
@@ -468,7 +521,16 @@ void UploadWorker::gotoStep(Step s)
                       gotoStep(S_Volume);
                       return;
                   }
-                  runJs(QStringLiteral("__fq.newChapter()"), [this, gen](bool ok2, const QJsonValue &v2) {
+                  // 番茄的「新建章节」是 window.open 开新标签：先记下现有标签 id，
+                  // 点完再去找新出现的那个，否则会一直在旧标签（章节列表）上等编辑页。
+                  m_cdp->fetchTargets([this, gen](bool, const QJsonArray &pages, const QString &) {
+                      if (gen != m_gen || !m_running)
+                          return;
+                      m_knownTargets.clear();
+                      for (const QJsonValue &pv : pages)
+                          m_knownTargets << pv.toObject().value(QStringLiteral("id")).toString();
+
+                      runJs(QStringLiteral("__fq.newChapter()"), [this, gen](bool ok2, const QJsonValue &v2) {
                       if (gen != m_gen || !m_running)
                           return;
                       const QJsonObject o = v2.toObject();
@@ -488,18 +550,32 @@ void UploadWorker::gotoStep(Step s)
                           return;
                       }
                       m_retry = 0;
-                      pollJs(QStringLiteral("__fq.stage()"),
-                             [](const QJsonValue &v3) {
-                                 return v3.toObject().value(QStringLiteral("editor")).toBool();
-                             },
-                             400, 40, [this, gen](bool ok3, const QJsonValue &) {
-                                 if (gen != m_gen || !m_running)
-                                     return;
-                                 if (ok3)
-                                     gotoStep(S_Fill);
-                                 else
-                                     failChapter(QStringLiteral("新建章编辑页没出来（标题框找不到）"));
-                             });
+
+                      m_cdp->followNewTarget(
+                          m_knownTargets, QStringLiteral("/publish/"), 9000,
+                          [this, gen](bool okT, const QString &tid, const QString &whyT) {
+                              if (gen != m_gen || !m_running)
+                                  return;
+                              if (okT) {
+                                  m_editorTarget = tid;
+                                  emit log(QStringLiteral("  编辑页已在新标签打开，调试连接跟过去了"));
+                              } else {
+                                  emit log(QStringLiteral("  ⚠ %1（继续在原标签里等编辑页）").arg(whyT));
+                              }
+                              pollJs(QStringLiteral("__fq.stage()"),
+                                     [](const QJsonValue &v3) {
+                                         return v3.toObject().value(QStringLiteral("editor")).toBool();
+                                     },
+                                     400, 40, [this, gen](bool ok3, const QJsonValue &) {
+                                         if (gen != m_gen || !m_running)
+                                             return;
+                                         if (ok3)
+                                             gotoStep(S_Fill);
+                                         else
+                                             failChapter(QStringLiteral("新建章编辑页没出来（标题框找不到）"));
+                                     });
+                          });
+                      });
                   });
               });
         break;
@@ -639,18 +715,8 @@ void UploadWorker::gotoStep(Step s)
 
             // act == wait
             const QJsonObject st = o.value(QStringLiteral("stage")).toObject();
-            // 中途若开了新标签页（某些流程会），把调试连接跟过去
-            if (m_ticks == 15) {
-                m_cdp->ensureTarget(
-                    [](const QString &u) {
-                        return u.contains(QLatin1String("fanqienovel.com"))
-                               && u.contains(QLatin1String("/main/writer"));
-                    },
-                    [this](bool ok2, const QString &why2) {
-                        if (!ok2)
-                            emit log(QStringLiteral("  ⚠ 找不到番茄写作页：%1").arg(why2));
-                    });
-            }
+            // 注意：这里**不能**再"随便挑一个 /main/writer 标签"——
+            // 现在章节管理页和编辑页是两个标签，挑错了就会在列表页上等发布设置。
             if (m_ticks == 6 || m_ticks == 20 || m_ticks == 45) {
                 emit log(QStringLiteral("  …等待页面推进（管理=%1 编辑=%2 纠错=%3 发布=%4）")
                              .arg(st.value(QStringLiteral("manage")).toBool() ? QStringLiteral("是")

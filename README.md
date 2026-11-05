@@ -42,7 +42,7 @@ Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带�
 
 ## 快速开始
 
-1. 解压 `FanqieUploader-v1.0.1-win64-portable.zip`，双击 `FanqieUploader.exe`
+1. 解压 `FanqieUploader-v1.0.2-win64-portable.zip`，双击 `FanqieUploader.exe`
 2. 点 **「启动浏览器」** —— 会用独立 profile 起一个 Edge/Chrome 并打开作家后台
 3. 在这个浏览器里**登录一次**（登录态会一直留着，不影响你日常用的浏览器）
 4. 在浏览器里进到**目标书的「章节管理」页**，点工具里的 **「刷新」** 读书名与分卷
@@ -101,7 +101,7 @@ Qt 6 Widgets 桌面程序，Windows 单文件 exe 可直接跑（`dist/` 已带�
 msedge --headless=new --virtual-time-budget=9000 --dump-dom tools/test.html
 ```
 
-`tools/test.html` 用真实浏览器跑 44 项断言，覆盖错别字弹窗、纠错页、检测弹窗、风险识别、发布设置、存草稿、选卷、书名识别（连载/已完结两种书卡）、容器文本不被当成卷名、填章号/标题/正文等判定逻辑。
+`tools/test.html` 用真实浏览器跑 45 项断言，覆盖错别字弹窗、纠错页、检测弹窗、风险识别、发布设置、存草稿、选卷、书名识别（连载/已完结两种书卡）、容器文本不被当成卷名、填章号/标题/正文等判定逻辑。
 
 **想对着真实后台复验书名/分卷**
 
@@ -123,8 +123,9 @@ FanqieUploader/
 ├─ cdpclient.cpp/h       DevTools 协议客户端
 ├─ browserlauncher.cpp/h 拉起带调试端口的 Edge/Chrome
 ├─ js/site.js            页面自动化脚本（文本驱动，25 个接口）
-├─ tools/test.html       headless 逻辑自测（44 项）
+├─ tools/test.html       headless 逻辑自测（45 项）
 ├─ tools/cdp_probe.py    对真实后台做一次勘察（注入 site.js + 读书名/分卷）
+├─ tools/cdp_tabtest/    多标签接管逻辑的 C++ 冒烟测试
 └─ dist/                 便携版（自带 Qt 运行库）
 ```
 

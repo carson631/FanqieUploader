@@ -1,10 +1,13 @@
 #include "cdpclient.h"
 
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
 #include <QUrl>
+
+#include <memory>
 
 CdpClient::CdpClient(QObject *parent)
     : QObject(parent)
@@ -115,6 +118,7 @@ void CdpClient::connectToTarget(const QJsonObject &target)
         return;
     }
     m_url = target.value(QStringLiteral("url")).toString();
+    m_targetId = target.value(QStringLiteral("id")).toString();
     log(QStringLiteral("目标页：%1").arg(m_url));
     if (m_ws.state() != QAbstractSocket::UnconnectedState)
         m_ws.abort();
@@ -205,6 +209,103 @@ void CdpClient::handleMessage(const QString &text)
 
     cb(true, result.value(QStringLiteral("result")).toObject().value(QStringLiteral("value")),
        QString());
+}
+
+// ---- 多标签：番茄「新建章节」是 window.open 开新标签 ----
+
+void CdpClient::fetchTargets(ListCb cb)
+{
+    QUrl url(QStringLiteral("http://127.0.0.1:%1/json/list").arg(m_port));
+    QNetworkRequest req(url);
+    req.setTransferTimeout(4000);
+    QNetworkReply *reply = m_net.get(req);
+
+    connect(reply, &QNetworkReply::finished, this, [reply, cb]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            cb(false, QJsonArray(),
+               QStringLiteral("连不上调试端口：%1").arg(reply->errorString()));
+            return;
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isArray()) {
+            cb(false, QJsonArray(), QStringLiteral("/json/list 返回的不是数组"));
+            return;
+        }
+        QJsonArray pages;
+        for (const QJsonValue &v : doc.array()) {
+            const QJsonObject o = v.toObject();
+            if (o.value(QStringLiteral("type")).toString() != QLatin1String("page"))
+                continue;
+            const QString u = o.value(QStringLiteral("url")).toString();
+            if (u.startsWith(QLatin1String("devtools")))
+                continue;
+            pages.append(o);
+        }
+        cb(true, pages, QString());
+    });
+}
+
+void CdpClient::followNewTarget(
+    const QStringList &knownIds, const QString &urlPart, int waitMs,
+    std::function<void(bool ok, const QString &targetId, const QString &why)> cb)
+{
+    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + waitMs;
+    auto step = std::make_shared<std::function<void()>>();
+    *step = [this, knownIds, urlPart, deadline, cb, step]() {
+        fetchTargets([this, knownIds, urlPart, deadline, cb, step](
+                         bool ok, const QJsonArray &pages, const QString &why) {
+            if (!ok) {
+                cb(false, QString(), why);
+                return;
+            }
+            for (const QJsonValue &v : pages) {
+                const QJsonObject o = v.toObject();
+                const QString id = o.value(QStringLiteral("id")).toString();
+                const QString u = o.value(QStringLiteral("url")).toString();
+                if (!u.contains(urlPart))
+                    continue;
+                if (id == m_targetId) {
+                    // 原地跳到编辑页（不是新标签），连接没变
+                    m_url = u;
+                    cb(true, id, QString());
+                    return;
+                }
+                if (knownIds.contains(id))
+                    continue;               // 之前就开着的旧标签，不碰
+                connectToTarget(o);
+                QTimer::singleShot(800, this, [this, id, cb]() {
+                    cb(isConnected(), id,
+                       isConnected() ? QString() : QStringLiteral("新标签连不上"));
+                });
+                return;
+            }
+            if (QDateTime::currentMSecsSinceEpoch() >= deadline) {
+                cb(false, QString(),
+                   QStringLiteral("等新标签超时（没出现 URL 含「%1」的页面）").arg(urlPart));
+                return;
+            }
+            QTimer::singleShot(400, this, [step]() { (*step)(); });
+        });
+    };
+    (*step)();
+}
+
+void CdpClient::closeTarget(const QString &targetId)
+{
+    if (targetId.isEmpty())
+        return;
+    // /json/close/<id> 是 DevTools HTTP 接口，关标签不用另开 WebSocket
+    QUrl url(QStringLiteral("http://127.0.0.1:%1/json/close/%2").arg(m_port).arg(targetId));
+    QNetworkRequest req(url);
+    req.setTransferTimeout(4000);
+    QNetworkReply *reply = m_net.get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, targetId]() {
+        reply->deleteLater();
+        // 标签可能已经自己关了（提交成功后番茄常常自己关掉编辑页），失败不当回事
+        if (reply->error() == QNetworkReply::NoError && m_targetId == targetId)
+            log(QStringLiteral("已关闭本章的编辑标签"));
+    });
 }
 
 void CdpClient::failPending(const QString &why)

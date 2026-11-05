@@ -183,6 +183,20 @@ async function run() {
   check('H2 选项确实存在于下拉里', !!opt1);
   check('H3 不会把外层容器当成选项', (pv.options || []).every(o => o === '第一卷：铁誓之约' || o === '第二卷：圣歌与暗金'), JSON.stringify(pv.options));
 
+  /* ---------- K2. 编辑页不能被当成章节管理页（顶部也有书名+分卷） ---------- */
+  stage(`
+    <div class="row">佣兵2：铁誓之约</div>
+    <div class="row vol-trigger">第二卷：圣歌与暗金</div>
+    <div class="row">第 <input placeholder="请输入章节号"> 章
+      <input placeholder="请输入标题"></div>
+    <div id="editor" contenteditable="true"></div>
+    <button>存草稿</button><button>下一步</button>
+  `);
+  await sleep(60);
+  const se = __fq.stage();
+  check('K2 编辑页 manage=false / editor=true', se.manage === false && se.editor === true,
+        JSON.stringify(se));
+
   /* ---------- K. 章节管理页 stage 判定 ---------- */
   stage(`
     <div class="row"><span>第二卷：圣歌与暗金</span></div>

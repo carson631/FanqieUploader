@@ -6,6 +6,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 #include <functional>
 
@@ -77,12 +78,16 @@ private:
     void abortWithDraft(const QString &why, bool risk);   // 先存草稿再中断
     void finishChapter(bool ok, const QString &msg);
     void advanceChapter();
+    // 编辑页是「新建章节」打开的独立标签：关掉它并切回章节管理页
+    void returnToManage(std::function<void(bool ok)> cb);
 
     CdpClient *m_cdp = nullptr;
     QString    m_site;
     QList<Job> m_jobs;
     QString    m_book;
     QString    m_volume;
+    QStringList m_knownTargets;   // 点「新建章节」前已有的标签 id
+    QString    m_editorTarget;    // 本章编辑页所在标签（用于收尾时关掉）
 
     bool   m_running = false;
     bool   m_stopOnError = true;
@@ -92,6 +97,7 @@ private:
     int    m_fail = 0;
     int    m_ticks = 0;
     int    m_retry = 0;
+    int    m_switchRetry = 0;        // 起步时「切回章节管理标签」的尝试次数
     bool   m_stepped = false;        // 本章是否已点过「下一步」
     bool   m_filled = false;         // 本章正文是否已写入（决定异常时要不要存草稿）
     Step   m_step = S_Idle;
