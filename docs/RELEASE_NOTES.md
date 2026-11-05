@@ -50,5 +50,6 @@
 ## 校验值
 
 ```
-（见下方附件）
+615c0a329a81128e224e56a052b6ae90ceba9d7641fed9724fda31ed90e3b689  FanqieUploader-v1.0.0-win64-portable.zip  (13,879,983 B / 22 files)
+eb2557273f51073ec4bdc018a037fef8c619b0ad331123d951d189c36b42d0e7  FanqieUploader.exe  (530,750 B)
 ```
