@@ -927,6 +927,15 @@ void UploadWorker::gotoStep(Step s)
                                    .arg(r.value(QStringLiteral("dateVal")).toString(),
                                         r.value(QStringLiteral("timeVal")).toString()));
 
+                      // 自测钩子：停在发布设置（保留弹窗供 CDP 抓 DOM），绝不点「确认发布」
+                      if (qEnvironmentVariableIsSet("CU_PUBSTOP")) {
+                          emit log(QStringLiteral("CU_PUBSTOP：停在发布设置，未点确认发布（弹窗保留）"));
+                          m_running = false;
+                          ++m_gen;
+                          emit finished(m_ok, m_fail);
+                          return;
+                      }
+
                       runJs(QStringLiteral("__fq.confirmPublish()"), [this, gen](bool ok3, const QJsonValue &v3) {
                           if (gen != m_gen || !m_running)
                               return;

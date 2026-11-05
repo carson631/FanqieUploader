@@ -791,27 +791,184 @@
     };
   };
 
+  // 发布设置里的日期/时间是 Arco 的 Picker：直接改 input.value 只会改「显示」，
+  // Arco 内部状态没变，提交时用的还是旧值（踩过一次：日志说 11-06 19:00，
+  // 实际发出去的是默认的 11-05 19:05）。所以必须点面板，并且校验要看面板高亮。
+  //
+  // 打开面板只能用 input.click()：focus()+mousedown 反而会把「刚打开」又关掉。
+  async function openPicker(input, isOpen) {
+    if (isOpen && isOpen()) return true;
+    input.click();
+    await sleep(450);
+    if (!isOpen || isOpen()) return true;
+    input.click();
+    await sleep(400);
+    return !isOpen || isOpen();
+  }
+
+  function firstVisible(sel) {
+    return [...document.querySelectorAll(sel)].filter((e) => vis(e))[0] || null;
+  }
+
+  // 日历面板：靠「可见的 header」定位，再往上取到 .arco-picker
+  function datePanel() {
+    const h = firstVisible('.arco-picker-header');
+    if (!h) return null;
+    return h.closest('.arco-picker') || h.parentElement;
+  }
+
+  function timePanel() {
+    const l = firstVisible('.arco-timepicker-list');
+    if (!l) return null;
+    return l.closest('.arco-timepicker') || l.parentElement;
+  }
+
+  // 收起浮层：再点一次输入框（Arco 的 picker 是开/关切换），比点别处可靠
+  async function closePickers() {
+    for (let i = 0; i < 3; i++) {
+      const dOpen = !!datePanel();
+      const tOpen = !!timePanel();
+      if (!dOpen && !tOpen) return true;
+      const el = dOpen
+        ? [...document.querySelectorAll('input')].filter(vis)
+            .find((e) => /日期/.test(e.getAttribute('placeholder') || ''))
+        : [...document.querySelectorAll('input')].filter(vis)
+            .find((e) => /时间/.test(e.getAttribute('placeholder') || ''));
+      if (!el) return false;
+      el.click();
+      await sleep(380);
+    }
+    return !datePanel() && !timePanel();
+  }
+
+  async function pickDateByPanel(input, dateStr) {
+    const y = Number(dateStr.slice(0, 4));
+    const mo = Number(dateStr.slice(5, 7));
+    const d = String(Number(dateStr.slice(8, 10)));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await openPicker(input, datePanel);
+      const panel = datePanel();
+      if (!panel) return false;
+
+      for (let i = 0; i < 24; i++) {
+        const h = panel.querySelector('.arco-picker-header');
+        const m = ((h && h.innerText) || '').replace(/\s+/g, '').match(/(\d{4})年(\d{1,2})月/);
+        if (!m) break;
+        const cur = Number(m[1]) * 12 + Number(m[2]);
+        const want = y * 12 + mo;
+        if (cur === want) break;
+        const icons = [...panel.querySelectorAll('.arco-picker-header-icon')];
+        const sel = cur > want
+          ? 'svg.serial-icon-left,svg.arco-icon-left'
+          : 'svg.serial-icon-right,svg.arco-icon-right';
+        const btn = icons.find((ic) => ic.querySelector(sel));
+        if (!btn) break;
+        btn.click();
+        await sleep(160);
+      }
+
+      const cell = [...panel.querySelectorAll('[class*="cell"]')]
+        .filter((c) => vis(c) && /in-view/.test(c.className || ''))
+        .find((c) => (c.innerText || '').trim() === d);
+      if (!cell) return false;
+      (cell.querySelector('.arco-picker-date-value') || cell).click();
+      await sleep(420);
+      if (input.value === dateStr) return true;
+    }
+    return false;
+  }
+
+  async function pickTimeByPanel(input, timeStr) {
+    const hh = timeStr.slice(0, 2);
+    const mi = timeStr.slice(3, 5) || '00';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await openPicker(input, timePanel);
+      const panel = timePanel();
+      if (!panel) return false;
+      const lists = [...panel.querySelectorAll('.arco-timepicker-list')].filter(vis);
+      if (lists.length < 2) return false;
+      const pick = async (list, txt) => {
+        const li = [...list.querySelectorAll('li')]
+          .find((c) => (c.innerText || '').trim() === txt);
+        if (!li) return false;
+        (li.querySelector('.arco-timepicker-cell-inner') || li).click();
+        await sleep(200);
+        return true;
+      };
+      if (!(await pick(lists[0], hh))) return false;
+      if (!(await pick(lists[1], mi))) return false;
+      const okBtn = [...panel.querySelectorAll('button')]
+        .find((b) => (b.innerText || '').trim() === '确定');
+      if (okBtn) okBtn.click();
+      await sleep(450);
+      if ((input.value || '').indexOf(timeStr) === 0) return true;
+    }
+    return false;
+  }
+
+  // 面板高亮是否等于目标（true/false；没有面板返回 null）
+  async function dayHighlighted(dateStr) {
+    const panel = datePanel();
+    if (!panel) return null;
+    const d = String(Number(dateStr.slice(8, 10)));
+    const sel = [...panel.querySelectorAll('[class*="select"]')].filter(vis)
+      .map((c) => (c.innerText || '').trim());
+    const h = panel.querySelector('.arco-picker-header');
+    const m = ((h && h.innerText) || '').replace(/\s+/g, '').match(/(\d{4})年(\d{1,2})月/);
+    const headOk = !m
+      || (Number(m[1]) === Number(dateStr.slice(0, 4)) && Number(m[2]) === Number(dateStr.slice(5, 7)));
+    return sel.indexOf(d) >= 0 && headOk;
+  }
+
+  async function timeHighlighted(timeStr) {
+    const panel = timePanel();
+    if (!panel) return null;
+    const sel = [...panel.querySelectorAll('.arco-timepicker-cell-selected')].filter(vis)
+      .map((c) => (c.innerText || '').trim());
+    return sel.length >= 2 && sel[0] === timeStr.slice(0, 2) && sel[1] === (timeStr.slice(3, 5) || '00');
+  }
+
+  // 调试用：单独跑日期/时间选择，返回耗时（真机排障时很有用）
+  FQ._internals = { openPicker, closePickers, datePanel, timePanel, pickDateByPanel, pickTimeByPanel, dayHighlighted, timeHighlighted };
+  FQ._pickDate = async (d) => {
+    const el = [...document.querySelectorAll('input')].filter(vis)
+      .find((e) => /日期/.test(e.getAttribute('placeholder') || ''));
+    if (!el) return { err: 'no input' };
+    const t0 = Date.now();
+    const r = await pickDateByPanel(el, d);
+    return { r, ms: Date.now() - t0, val: el.value, panel: !!datePanel() };
+  };
+  FQ._pickTime = async (t) => {
+    const el = [...document.querySelectorAll('input')].filter(vis)
+      .find((e) => /时间/.test(e.getAttribute('placeholder') || ''));
+    if (!el) return { err: 'no input' };
+    const t0 = Date.now();
+    const r = await pickTimeByPanel(el, t);
+    return { r, ms: Date.now() - t0, val: el.value, panel: !!timePanel() };
+  };
+
   FQ.setPublish = async function (dateStr, timeStr) {
     const res = { ok: true, steps: [] };
     const body = () => T(document.body);
 
-    // 1) 是否使用AI → 选「否」
-    // 「否」必须精确匹配，否则会命中「是否使用AI」这一行本身
+    // 发布设置弹窗：后面全部在这个容器里做结构化定位，别在大页面上按文案扫
+    const modal = [...document.querySelectorAll('.arco-modal-wrapper')].filter(vis)[0]
+      || document.querySelector('.arco-modal-wrapper');
+    const root = modal || document;
+
+    // 1) 是否使用AI → 选「否」（label 上的 click 才会触发 React 的 onChange）
     let aiDone = false;
-    const aiLabel = findByText(['是否使用AI'], { maxW: 320, maxH: 60 });
-    if (aiLabel) {
-      let row = aiLabel.el;
-      for (let i = 0; i < 3 && row; i++) {
-        if (row.querySelector('input[type="radio"]')) break;
-        row = row.parentElement;
-      }
-      const radios = row ? [...row.querySelectorAll('input[type="radio"]')] : [];
-      if (radios.length >= 2) {
-        radios[1].click();            // 第二个就是「否」
-        aiDone = true;
-      }
+    const radioNo = [...root.querySelectorAll('.arco-radio')]
+      .find((r) => (r.innerText || '').trim() === '否')
+      || [...root.querySelectorAll('input[type="radio"]')]
+        .find((i) => /否/.test((i.parentElement && i.parentElement.innerText) || ''));
+    if (radioNo) {
+      const inp = radioNo.tagName === 'INPUT' ? radioNo : radioNo.querySelector('input[type="radio"]');
+      if (!(inp && inp.checked)) (inp || radioNo).click();
+      aiDone = true;
     }
     if (!aiDone) {
+      // 兜底：后台把「否」做成自定义 div/span 时，按文案精确点
       const noEl = findByText(['否'], { exact: true, maxW: 90, maxH: 60 });
       if (noEl) {
         const r = noEl.el.querySelector && noEl.el.querySelector('input[type="radio"]');
@@ -822,39 +979,12 @@
     res.steps.push(aiDone ? 'AI=否' : 'AI=否(未找到)');
     await sleep(250);
 
-    // 2) 定时发布开关
-    const swLabel = findByText(['定时发布'], { maxW: 260, maxH: 60 });
-    let sw = null;
-    if (swLabel) {
-      let p = swLabel.el;
-      for (let i = 0; i < 4 && p; i++) {
-        const cand = p.querySelector && p.querySelector('[role="switch"],.ant-switch,input[type="checkbox"]');
-        if (cand) {
-          sw = cand;
-          break;
-        }
-        const next = p.nextElementSibling;
-        if (next && next.querySelector) {
-          const cand2 = next.matches('[role="switch"],.ant-switch,input[type="checkbox"]')
-            ? next
-            : next.querySelector('[role="switch"],.ant-switch,input[type="checkbox"]');
-          if (cand2) {
-            sw = cand2;
-            break;
-          }
-        }
-        p = p.parentElement;
-      }
-    }
-    if (!sw) {
-      // 退化：整块找 role=switch
-      sw = document.querySelector('[role="switch"],.ant-switch');
-    }
+    // 2) 定时发布开关（Arco Switch：类名带 arco-switch-checked 表示已开）
+    const sw = root.querySelector('.arco-switch, [role="switch"], input[type="checkbox"]');
     if (sw) {
-      const on =
-        sw.getAttribute('aria-checked') === 'true' ||
-        /checked|ant-switch-checked/.test((sw.className || '') + '') ||
-        (sw.tagName === 'INPUT' && sw.checked);
+      const on = /arco-switch-checked/.test(sw.className || '')
+        || sw.getAttribute('aria-checked') === 'true'
+        || (sw.tagName === 'INPUT' && sw.checked);
       if (!on) sw.click();
       res.steps.push(on ? '定时发布(已开)' : '定时发布=开');
     } else {
@@ -862,31 +992,68 @@
     }
     await sleep(400);
 
-    // 3) 日期 / 时间：按 placeholder、type、再按出现顺序兜底
-    const ins = [...document.querySelectorAll('input')].filter((e) => vis(e));
+    // 3) 日期 / 时间：优先按 placeholder，再按格式兜底
+    const ins2 = [...document.querySelectorAll('input')].filter((e) => vis(e));
     const dateEl =
-      ins.find((e) => /日期/.test(e.getAttribute('placeholder') || '')) ||
-      ins.find((e) => e.getAttribute('type') === 'date') ||
-      ins.find((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.value || ''));
+      ins2.find((e) => /日期/.test(e.getAttribute('placeholder') || '')) ||
+      ins2.find((e) => e.getAttribute('type') === 'date') ||
+      ins2.find((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.value || ''));
     const timeEl =
-      ins.find((e) => /时间/.test(e.getAttribute('placeholder') || '')) ||
-      ins.find((e) => e.getAttribute('type') === 'time') ||
-      ins.find((e) => /^\d{2}:\d{2}/.test(e.value || ''));
+      ins2.find((e) => /时间/.test(e.getAttribute('placeholder') || '')) ||
+      ins2.find((e) => e.getAttribute('type') === 'time') ||
+      ins2.find((e) => /^\d{2}:\d{2}/.test(e.value || ''));
 
     if (dateEl) {
-      setValue(dateEl, dateStr);
-      res.steps.push('日期=' + dateEl.value);
+      let done = await pickDateByPanel(dateEl, dateStr);
+      if (!done) {
+        // 不是 Arco 面板（页面改版）时才退回直接赋值，且后面仍要过校验
+        setValue(dateEl, dateStr);
+        done = dateEl.value === dateStr;
+        res.steps.push('日期=' + dateEl.value + (done ? '(赋值)' : '(赋值失败)'));
+      } else {
+        res.steps.push('日期=' + dateEl.value);
+      }
     } else res.steps.push('日期(未找到)');
+
     if (timeEl) {
-      setValue(timeEl, timeStr);
-      res.steps.push('时间=' + timeEl.value);
+      let done = await pickTimeByPanel(timeEl, timeStr);
+      if (!done) {
+        setValue(timeEl, timeStr);
+        done = (timeEl.value || '').indexOf(timeStr) === 0;
+        res.steps.push('时间=' + timeEl.value + (done ? '(赋值)' : '(赋值失败)'));
+      } else {
+        res.steps.push('时间=' + timeEl.value);
+      }
     } else res.steps.push('时间(未找到)');
 
-    await sleep(250);
-    // 4) 回读校验（自定义日期控件可能不接受直接赋值）
+    // 4) 收起浮层后等一次重渲染：显示值可能是「假」的，只有状态真的变了才留得住
+    await closePickers();
+    await sleep(700);
+
+    let dateOk = !!dateEl && dateEl.value === dateStr;
+    let timeOk = !!timeEl && (timeEl.value || '').indexOf(timeStr) === 0;
+
+    // 再看面板高亮：这条能戳穿「input 显示改了、Arco 状态没改」的假通过
+    if (dateOk && dateEl) {
+      await openPicker(dateEl, datePanel);
+      const hit = await dayHighlighted(dateStr);
+      if (hit === false) dateOk = false;
+      await closePickers();
+      await sleep(200);
+    }
+    if (timeOk && timeEl) {
+      await openPicker(timeEl, timePanel);
+      const hit = await timeHighlighted(timeStr);
+      if (hit === false) timeOk = false;
+      await closePickers();
+      await sleep(200);
+    }
+
     res.dateVal = dateEl ? dateEl.value : '';
     res.timeVal = timeEl ? timeEl.value : '';
-    res.ok = res.dateVal === dateStr && res.timeVal.indexOf(timeStr) === 0;
+    res.ok = dateOk && timeOk
+      && res.dateVal === dateStr
+      && res.timeVal.indexOf(timeStr) === 0;
     if (!res.ok) res.buttons = buttons(30);
     return res;
   };

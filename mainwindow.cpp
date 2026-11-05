@@ -271,7 +271,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
                                              QStringLiteral("MMM d yyyy"));
     appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
-                  .arg(QStringLiteral("1.0.6"),
+                  .arg(QStringLiteral("1.0.7"),
                        buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
                                           : QString::fromLatin1(__DATE__).simplified(),
                        QString::fromLatin1(__TIME__)));
@@ -342,7 +342,7 @@ void MainWindow::buildUi()
     tb->addWidget(sub);
     hl->addLayout(tb);
     hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.6"));
+    auto *ver = new QLabel(QStringLiteral("v1.0.7"));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
     root->addWidget(header);
@@ -1161,6 +1161,9 @@ void MainWindow::runAutoTest(const QString &shot)
             appendLog(QStringLiteral("CU_RUN 结束：成功 %1　失败 %2").arg(ok).arg(fail));
             if (!runShot.isEmpty())
                 grab().save(runShot);
+            // CU_KEEP：结束也不退出，把窗口和浏览器留在原地，方便用 CDP 接着抓页面
+            if (qEnvironmentVariableIsSet("CU_KEEP"))
+                return;
             QTimer::singleShot(400, qApp, &QApplication::quit);
         });
         m_cdp->discoverAndConnect();
