@@ -17,6 +17,7 @@ class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
 class QSpinBox;
+class QSplitter;
 class QTableWidget;
 class QTimeEdit;
 
@@ -71,6 +72,11 @@ private:
     QLabel *m_connText = nullptr;
     QPushButton *m_connBtn = nullptr;
     QPushButton *m_probeBtn = nullptr;
+
+    // 全局状态
+    QLabel    *m_statusText = nullptr;   // 状态栏左侧
+    QLabel    *m_countLabel = nullptr;   // 右表「N 章」计数胶囊
+    QSplitter *m_split = nullptr;       // 右列 表格/日志 分隔条
 
     // 作品
     QComboBox *m_bookCombo = nullptr;

@@ -15,7 +15,6 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
-#include <QGraphicsDropShadowEffect>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -29,12 +28,19 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScreen>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QStatusBar>
+#include <QStyle>
 #include <QTableWidget>
+#include <QTextCharFormat>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTimeEdit>
 #include <QVBoxLayout>
 
@@ -45,105 +51,155 @@
 #include <windows.h>
 #endif
 
+static const char *kVersion = "1.1.0";
+
 static const char *kStyle = R"QSS(
-QWidget#appBg { background:#F5F6F8; }
+/* ===== 基础 ================================================== */
+QWidget#appBg  { background:#F4F5F7; }
+QWidget#leftCol { background:transparent; }
+QLabel         { color:#1F2937; }
 
-QFrame#appHeader {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                stop:0 #FF7A45, stop:1 #D93A0B);
-    border:0;
-}
-QLabel#appTitle    { color:#FFFFFF; font-size:19px; font-weight:700; letter-spacing:1px; }
-QLabel#appSubtitle { color:rgba(255,255,255,0.86); font-size:12px; }
+/* ===== 顶栏 ================================================== */
+QFrame#appHeader { background:#FFFFFF; border:0; border-bottom:1px solid #E9EBEF; }
+QLabel#appTitle    { color:#111827; font-size:15px; font-weight:600; }
+QLabel#appSubtitle { color:#9AA3B0; font-size:11px; }
 QLabel#verTag {
-    color:rgba(255,255,255,0.94); border:1px solid rgba(255,255,255,0.5);
-    border-radius:10px; padding:2px 10px; font-size:11px;
+    color:#8B93A1; background:#F4F5F7; border:1px solid #E9EBEF;
+    border-radius:9px; padding:1px 8px; font-size:10px;
+}
+QFrame#chip {
+    background:#F8F9FB; border:1px solid #E9EBEF; border-radius:11px;
+}
+QLabel#chipText { color:#6B7280; font-size:11px; }
+
+/* ===== 卡片 ================================================== */
+QFrame#card {
+    background:#FFFFFF; border:1px solid #E9EBEF; border-radius:10px;
+}
+QLabel#section     { color:#111827; font-size:13px; font-weight:600; }
+QLabel#badge {
+    color:#F5591F; background:#FFF2EC; border-radius:9px;
+    font-size:11px; font-weight:700;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#hint       { color:#9AA3B0; font-size:11px; }
+QLabel#flowHint   { color:#C3CAD4; font-size:11px; }
+QLabel#stat       { color:#6B7280; font-size:12px; }
+QLabel#fieldLabel { color:#78828F; font-size:12px; }
+QLabel#countChip {
+    color:#6B7280; background:#F4F5F7; border-radius:8px;
+    padding:1px 8px; font-size:11px;
 }
 
-QFrame#card { background:#FFFFFF; border:1px solid #E6E8EC; border-radius:12px; }
-QLabel#section { color:#1F2937; font-weight:700; }
-QLabel#hint { color:#8A93A3; font-size:11px; }
-QLabel#stat { color:#5B6577; font-size:12px; }
-
-QLabel { color:#25313F; }
-
+/* ===== 输入控件 ============================================== */
 QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox {
-    background:#FBFCFD; border:1px solid #DFE3EA; border-radius:8px;
-    padding:5px 9px; color:#22303F;
-    selection-background-color:#FFD9C7;
+    background:#FFFFFF; border:1px solid #DCE0E7; border-radius:6px;
+    padding:5px 8px; color:#111827;
+    selection-background-color:#FFD9C8; selection-color:#111827;
+}
+QLineEdit:hover, QComboBox:hover, QDateEdit:hover, QTimeEdit:hover, QSpinBox:hover {
+    border-color:#C2C9D4;
 }
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus {
-    border:1px solid #FF6B35; background:#FFFFFF;
+    border-color:#F5591F;
 }
-QComboBox::drop-down { border:0; width:22px; }
-QComboBox::down-arrow { image:url(:/icons/chevron.png); width:11px; height:11px; }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {
+    color:#AEB6C2; background:#F7F8FA;
+}
+QComboBox::drop-down, QDateEdit::drop-down { border:0; width:20px; }
+QComboBox::down-arrow, QDateEdit::down-arrow {
+    image:url(:/icons/chevron.png); width:10px; height:10px;
+}
 QComboBox QAbstractItemView {
-    background:#FFFFFF; border:1px solid #E6E8EC; outline:0;
-    selection-background-color:#FFF0E8; selection-color:#D93A0B;
+    background:#FFFFFF; border:1px solid #E9EBEF; outline:0; padding:4px;
+    selection-background-color:#FFF2EC; selection-color:#D9480F;
 }
 QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { width:0; border:0; }
-QDateEdit::drop-down { border:0; width:22px; }
-QDateEdit::down-arrow { image:url(:/icons/chevron.png); width:10px; height:10px; }
 
+/* ===== 复选框 ================================================ */
+QCheckBox { color:#374151; spacing:8px; }
 QCheckBox::indicator {
-    width:15px; height:15px; border:1px solid #D3D9E2; border-radius:4px; background:#FFFFFF;
+    width:15px; height:15px; border:1px solid #CFD5DE;
+    border-radius:4px; background:#FFFFFF;
 }
-QCheckBox::indicator:hover { border-color:#FFB08C; }
+QCheckBox::indicator:hover { border-color:#F0A184; }
 QCheckBox::indicator:checked {
-    background:#FF6B35; border-color:#FF6B35; image:url(:/icons/check.png);
+    background:#F5591F; border-color:#F5591F; image:url(:/icons/check.png);
 }
 
+/* ===== 按钮 ================================================== */
 QPushButton {
-    background:#FFFFFF; border:1px solid #DFE3EA; border-radius:8px;
-    padding:6px 14px; color:#2A3A50;
+    background:#FFFFFF; border:1px solid #DCE0E7; border-radius:6px;
+    padding:6px 14px; color:#374151;
 }
-QPushButton:hover  { background:#FFF7F2; border-color:#FFC3A6; }
-QPushButton:pressed { background:#FFEDE3; }
-QPushButton:disabled { color:#AEB6C4; background:#F5F6F8; border-color:#E6E8EC; }
+QPushButton:hover   { background:#F9FAFB; border-color:#C2C9D4; }
+QPushButton:pressed { background:#F1F3F5; }
+QPushButton:disabled { color:#B6BEC9; background:#F7F8FA; border-color:#EDEFF3; }
 
 QPushButton#primary {
-    background:#FF6B35; border:1px solid #FF6B35; color:#FFFFFF;
-    font-weight:600; padding:7px 20px;
+    background:#F5591F; border:1px solid #F5591F; color:#FFFFFF;
+    font-weight:600; padding:7px 18px;
 }
-QPushButton#primary:hover   { background:#F05A22; border-color:#F05A22; }
-QPushButton#primary:pressed { background:#D94A15; }
-QPushButton#primary:disabled { background:#FFC9B2; border-color:#FFC9B2; color:#FFFFFF; }
+QPushButton#primary:hover    { background:#DF4A12; border-color:#DF4A12; }
+QPushButton#primary:pressed  { background:#C53F0E; }
+QPushButton#primary:disabled { background:#F8C7B2; border-color:#F8C7B2; color:#FFFFFF; }
 
-QPushButton#danger { color:#C2410C; border-color:#F3C7B4; }
-QPushButton#danger:hover { background:#FFF3EC; }
+QPushButton#ghost {
+    background:transparent; border:1px solid transparent;
+    color:#6B7280; padding:4px 9px;
+}
+QPushButton#ghost:hover   { background:#F3F4F6; color:#111827; }
+QPushButton#ghost:pressed { background:#E9EBEF; }
 
+QPushButton#danger { color:#C2410C; border-color:#F2CFC0; }
+QPushButton#danger:hover   { background:#FEF4EF; border-color:#E9AE93; }
+QPushButton#danger:disabled { color:#C7CDD6; border-color:#EDEFF3; }
+
+/* ===== 表格 ================================================== */
 QTableWidget {
-    background:#FFFFFF; border:1px solid #EAEDF2; border-radius:10px;
+    background:#FFFFFF; border:1px solid #EFF1F4; border-radius:8px;
     gridline-color:transparent;
-    selection-background-color:#FFF0E8; selection-color:#1B2A3D;
-    alternate-background-color:#FCFCFD;
+    selection-background-color:#FFF2EC; selection-color:#111827;
+    alternate-background-color:#FAFBFC;
 }
+QTableWidget::item { padding:0 10px; border:0; }
 QHeaderView::section {
-    background:#F7F8FA; color:#5B6577; border:0;
-    border-bottom:1px solid #EAEDF2; padding:7px 8px;
-    font-size:12px; font-weight:600;
+    background:#FBFCFD; color:#9AA3B0; border:0;
+    border-bottom:1px solid #EFF1F4; padding:7px 10px;
+    font-size:11px; font-weight:600;
 }
-QTableCornerButton::section { background:#F7F8FA; border:0; }
+QTableCornerButton::section { background:#FBFCFD; border:0; }
 
-QProgressBar { background:#EDEFF3; border:0; border-radius:5px; height:10px; }
-QProgressBar::chunk { background:#FF6B35; border-radius:5px; }
+/* ===== 进度 / 日志 =========================================== */
+QProgressBar { background:#E8EBF0; border:0; border-radius:4px; }
+QProgressBar::chunk { background:#F5591F; border-radius:4px; }
 
 QPlainTextEdit#log {
-    background:#FBFCFD; border:1px solid #EAEDF2; border-radius:10px;
-    color:#3B4A5E; padding:6px;
+    background:#FBFCFD; border:1px solid #EFF1F4; border-radius:8px;
+    color:#4B5563; padding:8px;
 }
 
-QCheckBox { color:#25313F; spacing:7px; }
+/* ===== 滚动条 / 分隔条 / 状态栏 =============================== */
+QScrollArea { background:transparent; border:0; }
+QScrollBar:vertical { background:transparent; width:10px; margin:2px 0 2px 0; }
+QScrollBar::handle:vertical { background:#D6DBE3; border-radius:4px; min-height:28px; }
+QScrollBar::handle:vertical:hover { background:#BFC6D2; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; border:0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:transparent; }
+QScrollBar:horizontal { background:transparent; height:10px; margin:0 2px 0 2px; }
+QScrollBar::handle:horizontal { background:#D6DBE3; border-radius:4px; min-width:28px; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; border:0; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background:transparent; }
 
-QScrollBar:vertical { background:transparent; width:10px; margin:2px; }
-QScrollBar::handle:vertical { background:#D2D7E0; border-radius:5px; min-height:24px; }
-QScrollBar::handle:vertical:hover { background:#B9C1CF; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
-QScrollBar:horizontal { background:transparent; height:10px; margin:2px; }
-QScrollBar::handle:horizontal { background:#D2D7E0; border-radius:5px; min-width:24px; }
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; }
+QSplitter::handle { background:transparent; }
 
-QSplitter::handle { background:transparent; height:8px; }
+QStatusBar { background:#FAFBFC; border-top:1px solid #E9EBEF; }
+QStatusBar::item { border:0; }
+QLabel#statBar { color:#9AA3B0; font-size:11px; }
+
+QToolTip {
+    background:#1F2937; color:#F3F4F6; border:0; padding:5px 8px; font-size:11px;
+}
 )QSS";
 
 static const char *kBookUrl = "https://fanqienovel.com/main/writer/book-manage";
@@ -216,7 +272,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     // 样式表等控件全建完再一次性应用：提前 set 会让每个新控件在 polish 时
     // 逐条匹配 QSS 规则，78 个控件累起来就是几百毫秒（实测差 ~200ms）
     const qint64 tCss = prof.restart();
-    resize(1200, 800);
+    setMinimumSize(1040, 640);
+    {
+        // 默认尺寸跟着屏幕可用区走：1080p / 2K / 缩放 125% 都不会超出屏幕
+        const QRect avail = QGuiApplication::primaryScreen()
+                                ? QGuiApplication::primaryScreen()->availableGeometry()
+                                : QRect(0, 0, 1280, 800);
+        resize(qMin(1260, avail.width() - 60), qMin(820, avail.height() - 60));
+    }
 
     loadSiteScript();
     const qint64 tJs = prof.restart();
@@ -250,8 +313,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(m_worker, &UploadWorker::progress, this, [this](int done, int total) {
         m_progress->setMaximum(qMax(1, total));
         m_progress->setValue(done);
-        if (total > 0)
+        if (total > 0) {
             m_summary->setText(QStringLiteral("进度 %1 / %2").arg(done).arg(total));
+            if (m_statusText)
+                m_statusText->setText(QStringLiteral("正在上传　%1 / %2").arg(done).arg(total));
+        }
     });
     connect(m_worker, &UploadWorker::chapterStart, this, [this](int index, int, const QString &) {
         if (index < m_table->rowCount())
@@ -267,6 +333,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(m_worker, &UploadWorker::riskStop, this, [this](const QString &detail) {
         m_startBtn->setEnabled(true);
         m_stopBtn->setEnabled(false);
+        if (m_statusText)
+            m_statusText->setText(QStringLiteral("已中断 · 需要人工处理"));
         QMessageBox::warning(
             this, QStringLiteral("检测到风险，已中断"),
             detail + QStringLiteral("\n\n请到浏览器里人工处理这一章；处理完再点「开始上传」。\n"
@@ -277,12 +345,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         m_startBtn->setEnabled(true);
         m_stopBtn->setEnabled(false);
         m_summary->setText(QStringLiteral("完成：成功 %1，失败 %2").arg(ok).arg(fail));
+        if (m_statusText)
+            m_statusText->setText(fail > 0
+                                      ? QStringLiteral("已结束 · 成功 %1，失败 %2").arg(ok).arg(fail)
+                                      : QStringLiteral("已结束 · 全部成功（%1 章）").arg(ok));
     });
 
     const QDate buildDay = QDate::fromString(QString::fromLatin1(__DATE__).simplified(),
                                              QStringLiteral("MMM d yyyy"));
     appendLog(QStringLiteral("FanqieUploader v%1　构建 %2 %3")
-                  .arg(QStringLiteral("1.0.9"),
+                  .arg(QString::fromLatin1(kVersion),
                        buildDay.isValid() ? buildDay.toString(QStringLiteral("yyyy-MM-dd"))
                                           : QString::fromLatin1(__DATE__).simplified(),
                        QString::fromLatin1(__TIME__)));
@@ -320,18 +392,40 @@ void MainWindow::loadSiteScript()
 
 // ---- 界面 ---------------------------------------------------------------
 
-static QFrame *makeCard(const QString &titleText, QVBoxLayout **out)
+static QLabel *fieldLabel(const QString &t)
+{
+    auto *l = new QLabel(t);
+    l->setObjectName(QStringLiteral("fieldLabel"));
+    return l;
+}
+
+// 卡片 = 白底 + 1px 边框 + 标题行（可选数字徽标 + 右侧动作区）
+static QFrame *makeCard(const QString &step, const QString &titleText,
+                        QVBoxLayout **out, QHBoxLayout **headOut = nullptr)
 {
     auto *card = new QFrame;
     card->setObjectName(QStringLiteral("card"));
     auto *v = new QVBoxLayout(card);
-    v->setContentsMargins(14, 12, 14, 14);
-    v->setSpacing(8);
-    if (!titleText.isEmpty()) {
-        auto *t = new QLabel(titleText);
-        t->setObjectName(QStringLiteral("section"));
-        v->addWidget(t);
+    v->setContentsMargins(16, 13, 16, 15);
+    v->setSpacing(10);
+
+    auto *head = new QHBoxLayout;
+    head->setSpacing(8);
+    head->setContentsMargins(0, 0, 0, 0);
+    if (!step.isEmpty()) {
+        auto *b = new QLabel(step);
+        b->setObjectName(QStringLiteral("badge"));
+        b->setFixedSize(18, 18);
+        head->addWidget(b, 0, Qt::AlignVCenter);
     }
+    auto *t = new QLabel(titleText);
+    t->setObjectName(QStringLiteral("section"));
+    head->addWidget(t, 0, Qt::AlignVCenter);
+    head->addStretch(1);
+    v->addLayout(head);
+
+    if (headOut)
+        *headOut = head;
     *out = v;
     return card;
 }
@@ -346,62 +440,64 @@ void MainWindow::buildUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // 品牌头
+    // ===== 顶栏：品牌 + 全局状态 =====
     auto *header = new QFrame;
     header->setObjectName(QStringLiteral("appHeader"));
-    header->setFixedHeight(72);
+    header->setFixedHeight(56);
     auto *hl = new QHBoxLayout(header);
-    hl->setContentsMargins(22, 10, 22, 10);
+    hl->setContentsMargins(18, 0, 18, 0);
+    hl->setSpacing(10);
+
+    auto *logo = new QLabel;
+    logo->setFixedSize(26, 26);
+    logo->setPixmap(QPixmap(QStringLiteral(":/icons/app.png"))
+                        .scaled(26, 26, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    hl->addWidget(logo, 0, Qt::AlignVCenter);
+
     auto *tb = new QVBoxLayout;
-    tb->setSpacing(2);
+    tb->setSpacing(1);
+    tb->setContentsMargins(0, 0, 0, 0);
     auto *title = new QLabel(QStringLiteral("番茄章节上传工具"));
     title->setObjectName(QStringLiteral("appTitle"));
-    auto *sub = new QLabel(QStringLiteral("番茄小说网 · 作家后台　｜　自动建章 → 纠错 → 全面检测 → 定时发布"));
+    auto *sub = new QLabel(QStringLiteral("番茄小说网 · 作家后台　自动建章 → 纠错 → 全量检测 → 定时发布"));
     sub->setObjectName(QStringLiteral("appSubtitle"));
     tb->addWidget(title);
     tb->addWidget(sub);
     hl->addLayout(tb);
-    hl->addStretch(1);
-    auto *ver = new QLabel(QStringLiteral("v1.0.9"));
+
+    auto *ver = new QLabel(QStringLiteral("v") + QString::fromLatin1(kVersion));
     ver->setObjectName(QStringLiteral("verTag"));
     hl->addWidget(ver, 0, Qt::AlignVCenter);
-    root->addWidget(header);
+    hl->addStretch(1);
 
-    // 主体
-    auto *body = new QWidget;
-    auto *bl = new QHBoxLayout(body);
-    bl->setContentsMargins(16, 14, 16, 14);
-    bl->setSpacing(14);
-
-    // ===== 左列 =====
-    auto *left = new QWidget;
-    left->setFixedWidth(432);
-    auto *lv = new QVBoxLayout(left);
-    lv->setContentsMargins(0, 0, 0, 0);
-    lv->setSpacing(12);
-
-    // ① 连接
-    QVBoxLayout *c1 = nullptr;
-    auto *card1 = makeCard(QStringLiteral("① 连接浏览器"), &c1);
-    auto *row1 = new QHBoxLayout;
-    row1->setSpacing(8);
+    auto *chip = new QFrame;
+    chip->setObjectName(QStringLiteral("chip"));
+    chip->setFixedHeight(22);
+    auto *cl = new QHBoxLayout(chip);
+    cl->setContentsMargins(9, 0, 11, 0);
+    cl->setSpacing(6);
     m_dot = new QLabel;
-    m_dot->setFixedSize(8, 8);
+    m_dot->setFixedSize(6, 6);
     m_connText = new QLabel(QStringLiteral("未连接"));
-    m_connText->setObjectName(QStringLiteral("stat"));
-    row1->addWidget(m_dot);
-    row1->addWidget(m_connText);
-    row1->addStretch(1);
+    m_connText->setObjectName(QStringLiteral("chipText"));
+    cl->addWidget(m_dot, 0, Qt::AlignVCenter);
+    cl->addWidget(m_connText, 0, Qt::AlignVCenter);
+    hl->addWidget(chip, 0, Qt::AlignVCenter);
+
     m_probeBtn = new QPushButton(QStringLiteral("勘察页面"));
+    m_probeBtn->setObjectName(QStringLiteral("ghost"));
+    m_probeBtn->setToolTip(QStringLiteral("把当前页面结构打印到日志，排查选择器时用"));
+    m_probeBtn->setEnabled(false);
+    hl->addWidget(m_probeBtn, 0, Qt::AlignVCenter);
+
     m_connBtn = new QPushButton(QStringLiteral("启动浏览器"));
     m_connBtn->setObjectName(QStringLiteral("primary"));
-    row1->addWidget(m_probeBtn);
-    row1->addWidget(m_connBtn);
-    c1->addLayout(row1);
-    auto *h1 = new QLabel(QStringLiteral("登录态保存在独立 profile，只需登录一次；不会影响你日常用的浏览器。"));
-    h1->setObjectName(QStringLiteral("hint"));
-    h1->setWordWrap(true);
-    c1->addWidget(h1);
+    m_connBtn->setToolTip(QStringLiteral(
+        "用独立 profile 拉起 Edge 并接入调试端口（Ctrl+B）\n"
+        "登录态只保存在这个 profile 里，不影响你日常用的浏览器。"));
+    m_connBtn->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
+    hl->addWidget(m_connBtn, 0, Qt::AlignVCenter);
+
     connect(m_connBtn, &QPushButton::clicked, this, &MainWindow::toggleConnection);
     connect(m_probeBtn, &QPushButton::clicked, this, [this]() {
         if (!m_cdp->isConnected()) {
@@ -410,75 +506,108 @@ void MainWindow::buildUi()
         }
         m_worker->probePage();
     });
+    root->addWidget(header);
 
-    // ② 作品
+    // ===== 主体 =====
+    auto *body = new QWidget;
+    auto *bl = new QHBoxLayout(body);
+    bl->setContentsMargins(14, 14, 14, 14);
+    bl->setSpacing(14);
+
+    // ===== 左列：上面设置区可滚动，底部「执行」常驻 =====
+    auto *leftCol = new QWidget;
+    leftCol->setFixedWidth(452);
+    auto *lcv = new QVBoxLayout(leftCol);
+    lcv->setContentsMargins(0, 0, 0, 0);
+    lcv->setSpacing(12);
+
+    auto *leftScroll = new QScrollArea;
+    leftScroll->setWidgetResizable(true);
+    leftScroll->setFrameShape(QFrame::NoFrame);
+    leftScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    leftScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    leftScroll->viewport()->setAutoFillBackground(false);
+
+    auto *left = new QWidget;
+    left->setObjectName(QStringLiteral("leftCol"));
+    auto *lv = new QVBoxLayout(left);
+    lv->setContentsMargins(0, 0, 4, 0);
+    lv->setSpacing(12);
+
+    // ① 作品
     QVBoxLayout *c2 = nullptr;
-    auto *card2 = makeCard(QStringLiteral("② 作品与分卷"), &c2);
+    QHBoxLayout *h2r = nullptr;
+    auto *card2 = makeCard(QStringLiteral("1"), QStringLiteral("作品与分卷"), &c2, &h2r);
+    m_refreshBtn = new QPushButton(QStringLiteral("刷新"));
+    m_refreshBtn->setObjectName(QStringLiteral("ghost"));
+    m_refreshBtn->setToolTip(QStringLiteral("从后台重新读取书架与分卷"));
+    h2r->addWidget(m_refreshBtn, 0, Qt::AlignVCenter);
+
     auto *f2 = new QGridLayout;
     f2->setHorizontalSpacing(8);
-    f2->setVerticalSpacing(8);
-    f2->addWidget(new QLabel(QStringLiteral("书名")), 0, 0);
+    f2->setVerticalSpacing(9);
+    f2->setColumnMinimumWidth(0, 40);
+    f2->addWidget(fieldLabel(QStringLiteral("书名")), 0, 0);
     m_bookCombo = new QComboBox;
     m_bookCombo->setEditable(true);
-    m_bookCombo->setMinimumWidth(240);
     f2->addWidget(m_bookCombo, 0, 1);
-    m_refreshBtn = new QPushButton(QStringLiteral("刷新"));
-    f2->addWidget(m_refreshBtn, 0, 2);
-    f2->addWidget(new QLabel(QStringLiteral("分卷")), 1, 0);
+    f2->addWidget(fieldLabel(QStringLiteral("分卷")), 1, 0);
     m_volCombo = new QComboBox;
     m_volCombo->setEditable(true);
-    f2->addWidget(m_volCombo, 1, 1, 1, 2);
+    f2->addWidget(m_volCombo, 1, 1);
     f2->setColumnStretch(1, 1);
     c2->addLayout(f2);
-    auto *h2 = new QLabel(QStringLiteral("刷新会读取后台的书架与分卷；也可手动填写书名/卷名。"));
-    h2->setObjectName(QStringLiteral("hint"));
-    h2->setWordWrap(true);
-    c2->addWidget(h2);
     connect(m_refreshBtn, &QPushButton::clicked, this, [this]() {
         refreshBooks();
         refreshVolumes();
     });
 
-    // ③ 章节源
+    // ② 章节源
     QVBoxLayout *c3 = nullptr;
-    auto *card3 = makeCard(QStringLiteral("③ 章节源与排期"), &c3);
+    auto *card3 = makeCard(QStringLiteral("2"), QStringLiteral("章节源与排期"), &c3);
     auto *rowd = new QHBoxLayout;
     rowd->setSpacing(8);
     m_dirEdit = new QLineEdit;
     m_dirEdit->setPlaceholderText(QStringLiteral("选择「每章一个 txt」的文件夹"));
     m_browseBtn = new QPushButton(QStringLiteral("选择"));
+    m_browseBtn->setToolTip(QStringLiteral("选择章节文件夹（Ctrl+O）"));
+    m_browseBtn->setShortcut(QKeySequence(QStringLiteral("Ctrl+O")));
     rowd->addWidget(m_dirEdit, 1);
     rowd->addWidget(m_browseBtn);
     c3->addLayout(rowd);
 
     auto *f3 = new QGridLayout;
     f3->setHorizontalSpacing(8);
-    f3->setVerticalSpacing(8);
+    f3->setVerticalSpacing(9);
+    f3->setColumnMinimumWidth(0, 58);
+    f3->setColumnMinimumWidth(2, 40);
+    f3->setColumnStretch(1, 1);
 
     // 章节范围：只上传目录里指定章号区间的部分（默认全选）
-    f3->addWidget(new QLabel(QStringLiteral("章节范围")), 0, 0);
+    f3->addWidget(fieldLabel(QStringLiteral("章节范围")), 0, 0);
     auto *rowRange = new QHBoxLayout;
     rowRange->setSpacing(6);
     m_fromSpin = new QSpinBox;
     m_fromSpin->setRange(0, 99999);
     m_fromSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_fromSpin->setAlignment(Qt::AlignCenter);
-    m_fromSpin->setFixedWidth(84);
+    m_fromSpin->setFixedWidth(72);
     m_toSpin = new QSpinBox;
     m_toSpin->setRange(0, 99999);
     m_toSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_toSpin->setAlignment(Qt::AlignCenter);
-    m_toSpin->setFixedWidth(84);
-    rowRange->addWidget(new QLabel(QStringLiteral("第")));
+    m_toSpin->setFixedWidth(72);
+    rowRange->addWidget(fieldLabel(QStringLiteral("第")));
     rowRange->addWidget(m_fromSpin);
-    rowRange->addWidget(new QLabel(QStringLiteral("章　至　第")));
+    rowRange->addWidget(fieldLabel(QStringLiteral("章")));
+    rowRange->addWidget(fieldLabel(QStringLiteral("—")));
+    rowRange->addWidget(fieldLabel(QStringLiteral("第")));
     rowRange->addWidget(m_toSpin);
-    rowRange->addWidget(new QLabel(QStringLiteral("章")));
-    m_rangeInfo = new QLabel(QStringLiteral("全部"));
-    m_rangeInfo->setObjectName(QStringLiteral("hint"));
-    rowRange->addSpacing(6);
-    rowRange->addWidget(m_rangeInfo);
+    rowRange->addWidget(fieldLabel(QStringLiteral("章")));
     rowRange->addStretch(1);
+    m_rangeInfo = new QLabel(QStringLiteral("全部"));
+    m_rangeInfo->setObjectName(QStringLiteral("countChip"));
+    rowRange->addWidget(m_rangeInfo, 0, Qt::AlignVCenter);
     f3->addLayout(rowRange, 0, 1, 1, 3);
 
     // 标题格式：番茄后台这本书历来是「第27章 27归队」这种带章号的写法
@@ -488,38 +617,40 @@ void MainWindow::buildUi()
         "勾上：标题 = 文件名「27归队」；不勾：标题 = 去掉章号的「归队」。"));
     f3->addWidget(m_titleWithNo, 1, 1, 1, 3);
 
-    f3->addWidget(new QLabel(QStringLiteral("首章日期")), 2, 0);
+    f3->addWidget(fieldLabel(QStringLiteral("首章日期")), 2, 0);
     m_dateEdit = new QDateEdit;
     m_dateEdit->setCalendarPopup(true);
     m_dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
     m_dateEdit->setDate(QDate::currentDate().addDays(1));
     f3->addWidget(m_dateEdit, 2, 1);
-    f3->addWidget(new QLabel(QStringLiteral("每天")), 2, 2);
+    f3->addWidget(fieldLabel(QStringLiteral("每天")), 2, 2);
     m_perDay = new QSpinBox;
     m_perDay->setRange(1, 20);
     m_perDay->setValue(3);
     m_perDay->setSuffix(QStringLiteral(" 章"));
+    m_perDay->setAlignment(Qt::AlignRight);
     m_perDay->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_perDay->setFixedWidth(96);
     f3->addWidget(m_perDay, 2, 3);
-    f3->addWidget(new QLabel(QStringLiteral("首发时间")), 3, 0);
+
+    f3->addWidget(fieldLabel(QStringLiteral("首发时间")), 3, 0);
     m_timeEdit = new QTimeEdit(QTime(19, 0));
     m_timeEdit->setDisplayFormat(QStringLiteral("HH:mm"));
     m_timeEdit->setButtonSymbols(QAbstractSpinBox::NoButtons);
     f3->addWidget(m_timeEdit, 3, 1);
-    f3->addWidget(new QLabel(QStringLiteral("间隔")), 3, 2);
+    f3->addWidget(fieldLabel(QStringLiteral("间隔")), 3, 2);
     m_interval = new QSpinBox;
     m_interval->setRange(0, 120);
     m_interval->setValue(5);
     m_interval->setSuffix(QStringLiteral(" 分钟"));
+    m_interval->setAlignment(Qt::AlignRight);
     m_interval->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_interval->setFixedWidth(96);
     f3->addWidget(m_interval, 3, 3);
-    f3->setColumnStretch(1, 1);
-    f3->setColumnStretch(3, 1);
     c3->addLayout(f3);
 
     auto *h3 = new QLabel(QStringLiteral(
-        "排期规则：每天 3 章 → 19:00 / 19:05 / 19:10；第 4 章自动顺延到次日 19:00。"
-        "章节范围按文件名里的章号筛选，例如 41 至 80 就只传这 40 章。"));
+        "排期按「每天章数 + 间隔」自动顺延到次日；章节范围按文件名里的章号筛选。"));
     h3->setObjectName(QStringLiteral("hint"));
     h3->setWordWrap(true);
     c3->addWidget(h3);
@@ -540,29 +671,40 @@ void MainWindow::buildUi()
     connect(m_dateEdit, &QDateEdit::dateChanged, this, [this](const QDate &) { reschedule(); });
     connect(m_timeEdit, &QTimeEdit::timeChanged, this, [this](const QTime &) { reschedule(); });
 
-    // ④ 执行
+    // ③ 执行
     QVBoxLayout *c4 = nullptr;
-    auto *card4 = makeCard(QStringLiteral("④ 执行"), &c4);
+    QHBoxLayout *h4r = nullptr;
+    auto *card4 = makeCard(QStringLiteral("3"), QStringLiteral("执行"), &c4, &h4r);
+    m_stopOnErr = new QCheckBox(QStringLiteral("出错即停"));
+    m_stopOnErr->setChecked(true);
+    m_stopOnErr->setToolTip(QStringLiteral("任意一章失败就中止整批，避免带病连发"));
+    h4r->addWidget(m_stopOnErr, 0, Qt::AlignVCenter);
+
     auto *row4 = new QHBoxLayout;
     row4->setSpacing(8);
     m_startBtn = new QPushButton(QStringLiteral("开始上传"));
     m_startBtn->setObjectName(QStringLiteral("primary"));
+    m_startBtn->setMinimumWidth(118);
+    m_startBtn->setToolTip(QStringLiteral("按上面的排期批量建章并发布（Ctrl+Enter）"));
+    m_startBtn->setShortcut(QKeySequence(QStringLiteral("Ctrl+Return")));
     m_stopBtn = new QPushButton(QStringLiteral("停止"));
     m_stopBtn->setObjectName(QStringLiteral("danger"));
     m_stopBtn->setEnabled(false);
-    m_stopOnErr = new QCheckBox(QStringLiteral("出错即停"));
-    m_stopOnErr->setChecked(true);
     row4->addWidget(m_startBtn);
     row4->addWidget(m_stopBtn);
     row4->addStretch(1);
-    row4->addWidget(m_stopOnErr);
     c4->addLayout(row4);
+
     m_progress = new QProgressBar;
     m_progress->setTextVisible(false);
-    m_progress->setFixedHeight(10);
+    m_progress->setFixedHeight(6);
+    m_progress->setRange(0, 100);
+    m_progress->setValue(0);
     c4->addWidget(m_progress);
+
     m_summary = new QLabel(QStringLiteral("未加载章节"));
     m_summary->setObjectName(QStringLiteral("stat"));
+    m_summary->setWordWrap(true);
     c4->addWidget(m_summary);
 
     connect(m_startBtn, &QPushButton::clicked, this, &MainWindow::startUpload);
@@ -571,67 +713,86 @@ void MainWindow::buildUi()
         m_worker->setStopOnError(on);
     });
 
-    lv->addWidget(card1);
+    // 执行区在滚动区之外（见下方 lcv），这里只排设置卡片
     lv->addWidget(card2);
     lv->addWidget(card3);
-    lv->addWidget(card4);
-    lv->addStretch(1);
+    auto *flowHint = new QLabel(QStringLiteral("连接浏览器　→　选择章节文件夹　→　核对排期后开始上传"));
+    flowHint->setObjectName(QStringLiteral("flowHint"));
+    flowHint->setAlignment(Qt::AlignCenter);
+    flowHint->setWordWrap(true);
+    lv->addWidget(flowHint, 1);
+    leftScroll->setWidget(left);
 
-    auto *foot = new QLabel(QStringLiteral("只在本机驱动浏览器，不接触你的账号密码"));
-    foot->setObjectName(QStringLiteral("hint"));
-    foot->setWordWrap(true);
-    lv->addWidget(foot);
+    lcv->addWidget(leftScroll, 1);
+    lcv->addWidget(card4);
 
     // ===== 右列 =====
     auto *right = new QSplitter(Qt::Vertical);
     right->setChildrenCollapsible(false);
+    right->setHandleWidth(12);
+    m_split = right;
 
     auto *tCard = new QFrame;
     tCard->setObjectName(QStringLiteral("card"));
     auto *tv = new QVBoxLayout(tCard);
-    tv->setContentsMargins(12, 10, 12, 12);
-    tv->setSpacing(8);
+    tv->setContentsMargins(14, 12, 14, 14);
+    tv->setSpacing(10);
     auto *tHead = new QHBoxLayout;
+    tHead->setSpacing(8);
     auto *tTitle = new QLabel(QStringLiteral("章节与排期"));
     tTitle->setObjectName(QStringLiteral("section"));
-    tHead->addWidget(tTitle);
+    tHead->addWidget(tTitle, 0, Qt::AlignVCenter);
+    m_countLabel = new QLabel(QStringLiteral("空"));
+    m_countLabel->setObjectName(QStringLiteral("countChip"));
+    tHead->addWidget(m_countLabel, 0, Qt::AlignVCenter);
     tHead->addStretch(1);
-    auto *tHint = new QLabel(QStringLiteral("定时时间按上面的规则自动计算，可手工改日期/时间后重新生成"));
+    auto *tHint = new QLabel(QStringLiteral("按左侧规则自动计算"));
     tHint->setObjectName(QStringLiteral("hint"));
-    tHead->addWidget(tHint);
+    tHead->addWidget(tHint, 0, Qt::AlignVCenter);
     tv->addLayout(tHead);
 
     m_table = new QTableWidget(0, 4);
     m_table->setHorizontalHeaderLabels({QStringLiteral("章号"), QStringLiteral("标题（取自文件名）"),
                                         QStringLiteral("字数"), QStringLiteral("定时发布")});
     m_table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    if (auto *hdr = m_table->horizontalHeaderItem(2))
+        hdr->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_table->horizontalHeader()->setHighlightSections(false);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
-    m_table->setColumnWidth(0, 64);
-    m_table->setColumnWidth(2, 80);
-    m_table->setColumnWidth(3, 150);
+    m_table->setColumnWidth(0, 72);
+    m_table->setColumnWidth(2, 88);
+    m_table->setColumnWidth(3, 158);
     m_table->verticalHeader()->setVisible(false);
-    m_table->verticalHeader()->setDefaultSectionSize(28);
+    m_table->verticalHeader()->setDefaultSectionSize(30);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setAlternatingRowColors(true);
     m_table->setShowGrid(false);
+    m_table->setWordWrap(false);
+    m_table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     tv->addWidget(m_table, 1);
 
     auto *logCard = new QFrame;
     logCard->setObjectName(QStringLiteral("card"));
     auto *lgv = new QVBoxLayout(logCard);
-    lgv->setContentsMargins(12, 10, 12, 12);
-    lgv->setSpacing(8);
+    lgv->setContentsMargins(14, 12, 14, 14);
+    lgv->setSpacing(10);
     auto *lgHead = new QHBoxLayout;
+    lgHead->setSpacing(8);
     auto *lgTitle = new QLabel(QStringLiteral("运行日志"));
     lgTitle->setObjectName(QStringLiteral("section"));
-    lgHead->addWidget(lgTitle);
+    lgHead->addWidget(lgTitle, 0, Qt::AlignVCenter);
     lgHead->addStretch(1);
     auto *clearBtn = new QPushButton(QStringLiteral("清空"));
-    lgHead->addWidget(clearBtn);
+    clearBtn->setObjectName(QStringLiteral("ghost"));
+    clearBtn->setToolTip(QStringLiteral("清空日志（Ctrl+L）"));
+    clearBtn->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
+    lgHead->addWidget(clearBtn, 0, Qt::AlignVCenter);
     lgv->addLayout(lgHead);
 
     m_log = new QPlainTextEdit;
@@ -649,6 +810,7 @@ void MainWindow::buildUi()
     m_log->setReadOnly(true);
     m_log->setUndoRedoEnabled(false);
     m_log->setMaximumBlockCount(4000);
+    m_log->setPlaceholderText(QStringLiteral("等待任务开始…"));
     lgv->addWidget(m_log, 1);
     connect(clearBtn, &QPushButton::clicked, this, [this]() {
         flushLog();
@@ -657,26 +819,26 @@ void MainWindow::buildUi()
 
     right->addWidget(tCard);
     right->addWidget(logCard);
-    right->setStretchFactor(0, 3);
-    right->setStretchFactor(1, 2);
+    right->setStretchFactor(0, 5);
+    right->setStretchFactor(1, 3);
 
-    bl->addWidget(left);
+    bl->addWidget(leftCol);
     bl->addWidget(right, 1);
     root->addWidget(body, 1);
+
+    // 状态栏
+    m_statusText = new QLabel(QStringLiteral("就绪"));
+    m_statusText->setObjectName(QStringLiteral("statBar"));
+    statusBar()->addWidget(m_statusText);
+    auto *sbHint = new QLabel(QStringLiteral("只在本机驱动浏览器，不接触你的账号密码"));
+    sbHint->setObjectName(QStringLiteral("statBar"));
+    statusBar()->addPermanentWidget(sbHint);
+    statusBar()->setSizeGripEnabled(false);
 
     m_logTimer = new QTimer(this);
     m_logTimer->setInterval(120);
     m_logTimer->setSingleShot(true);
     connect(m_logTimer, &QTimer::timeout, this, &MainWindow::flushLog);
-
-    // 卡片投影
-    for (QFrame *c : {card1, card2, card3, card4}) {
-        auto *sh = new QGraphicsDropShadowEffect(c);
-        sh->setBlurRadius(18);
-        sh->setOffset(0, 3);
-        sh->setColor(QColor(0, 0, 0, 18));
-        c->setGraphicsEffect(sh);
-    }
 
     showEmptyTable();
 }
@@ -684,10 +846,22 @@ void MainWindow::buildUi()
 void MainWindow::setConnected(bool on, const QString &text)
 {
     m_connText->setText(text);
-    m_dot->setStyleSheet(on ? QStringLiteral("background:#16A34A;border-radius:4px;")
-                            : QStringLiteral("background:#C7D0DE;border-radius:4px;"));
-    m_connBtn->setText(on ? QStringLiteral("断开") : QStringLiteral("启动浏览器"));
+    m_dot->setStyleSheet(on ? QStringLiteral("background:#16A34A;border-radius:3px;")
+                            : QStringLiteral("background:#C6CCD6;border-radius:3px;"));
+    m_connText->setStyleSheet(on ? QStringLiteral("color:#0F7A3D;")
+                                 : QStringLiteral("color:#6B7280;"));
+    m_connBtn->setText(on ? QStringLiteral("断开连接") : QStringLiteral("启动浏览器"));
+    // 连上以后「断开」是次要动作，不该继续占着主色按钮
+    const QString want = on ? QString() : QStringLiteral("primary");
+    if (m_connBtn->objectName() != want) {
+        m_connBtn->setObjectName(want);
+        m_connBtn->style()->unpolish(m_connBtn);
+        m_connBtn->style()->polish(m_connBtn);
+    }
     m_probeBtn->setEnabled(on);
+    if (m_statusText)
+        m_statusText->setText(on ? QStringLiteral("已连接浏览器 · 可以开始上传")
+                                 : QStringLiteral("就绪"));
 }
 
 // ---- 连接 ---------------------------------------------------------------
@@ -986,14 +1160,19 @@ void MainWindow::showEmptyTable()
     m_table->setRowCount(1);
     m_table->setSpan(0, 0, 1, 4);
     auto *it = new QTableWidgetItem(
-        QStringLiteral("还没有加载章节　·　先在左侧「③ 章节源与排期」选择章节文件夹，再按需限定章号范围"));
+        QStringLiteral("还没有加载章节　·　先在左侧「章节源与排期」选择章节文件夹，再按需限定章号范围"));
     it->setTextAlignment(Qt::AlignCenter);
-    it->setForeground(QColor(0x9A, 0xA3, 0xB2));
+    it->setForeground(QColor(0x9A, 0xA3, 0xB0));
     m_table->setItem(0, 0, it);
+    if (m_countLabel)
+        m_countLabel->setText(QStringLiteral("空"));
 }
 
 void MainWindow::updateSummary()
 {
+    if (m_countLabel)
+        m_countLabel->setText(m_jobs.isEmpty() ? QStringLiteral("空")
+                                               : QStringLiteral("%1 章").arg(m_jobs.size()));
     if (m_jobs.isEmpty()) {
         m_summary->setText(QStringLiteral("未加载章节"));
         return;
@@ -1053,6 +1232,10 @@ void MainWindow::startUpload()
 
     m_startBtn->setEnabled(false);
     m_stopBtn->setEnabled(true);
+    m_progress->setMaximum(qMax(1, m_jobs.size()));
+    m_progress->setValue(0);
+    if (m_statusText)
+        m_statusText->setText(QStringLiteral("正在上传　0 / %1").arg(m_jobs.size()));
     m_worker->start();
 }
 
@@ -1061,9 +1244,26 @@ void MainWindow::stopUpload()
     m_worker->stop();
     m_startBtn->setEnabled(true);
     m_stopBtn->setEnabled(false);
+    if (m_statusText)
+        m_statusText->setText(QStringLiteral("已停止"));
 }
 
 // ---- 日志 ---------------------------------------------------------------
+
+// 日志行着色：只按语义记号判断，不改日志内容
+static QColor logLineColor(const QString &line)
+{
+    if (line.contains(QChar(0x2717)) || line.contains(QStringLiteral("失败"))
+        || line.contains(QStringLiteral("✗")))
+        return QColor(0xDC, 0x26, 0x26);
+    if (line.contains(QChar(0x2713)) || line.contains(QStringLiteral("成功"))
+        || line.contains(QStringLiteral("✓")))
+        return QColor(0x0F, 0x7A, 0x3D);
+    if (line.contains(QChar(0x26A0)) || line.contains(QStringLiteral("风险"))
+        || line.contains(QStringLiteral("⚠")))
+        return QColor(0xB4, 0x5D, 0x09);
+    return QColor(0x55, 0x60, 0x70);
+}
 
 void MainWindow::appendLog(const QString &msg)
 {
@@ -1081,8 +1281,35 @@ void MainWindow::flushLog()
 {
     if (m_logBuf.isEmpty())
         return;
-    if (m_log)
-        m_log->appendPlainText(m_logBuf.join(QLatin1Char('\n')));
+    if (m_log) {
+        // 按语义着色：✓ 成功绿、✗ 失败红、⚠ 风险琥珀，其余常规灰蓝。
+        // 逐条 insertText（而不是 appendPlainText）才能带上 QTextCharFormat。
+        // 行首的 [hh:mm:ss] 用更淡的颜色，让正文自己浮出来。
+        bool emptyDoc = m_log->document()->isEmpty();
+        QTextCursor cur(m_log->document());
+        cur.movePosition(QTextCursor::End);
+        for (const QString &line : m_logBuf) {
+            if (!emptyDoc)
+                cur.insertBlock();
+            emptyDoc = false;
+            QTextCharFormat fmt;
+            fmt.setForeground(logLineColor(line));
+            int stampEnd = 0;
+            if (line.size() > 10 && line.startsWith(QLatin1Char('['))
+                && line.at(9) == QLatin1Char(']'))
+                stampEnd = 10;
+            if (stampEnd > 0) {
+                QTextCharFormat dim;
+                dim.setForeground(QColor(0xA8, 0xB1, 0xBE));
+                cur.insertText(line.left(stampEnd), dim);
+                cur.insertText(line.mid(stampEnd), fmt);
+            } else {
+                cur.insertText(line, fmt);
+            }
+        }
+        if (auto *sb = m_log->verticalScrollBar())
+            sb->setValue(sb->maximum());
+    }
     m_logBuf.clear();
     if (m_logTimer)
         m_logTimer->stop();
@@ -1106,6 +1333,10 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("titleWithNo"), m_titleWithNo->isChecked());
     s.setValue(QStringLiteral("from"), m_fromSpin->value());
     s.setValue(QStringLiteral("to"), m_toSpin->value());
+    // 窗口尺寸/位置与右列分栏比例：正式软件的标配记忆
+    s.setValue(QStringLiteral("geometry"), saveGeometry());
+    if (m_split)
+        s.setValue(QStringLiteral("splitter"), m_split->saveState());
     s.endGroup();
 }
 
@@ -1133,6 +1364,14 @@ void MainWindow::loadSettings()
     {
         const QSignalBlocker b(m_titleWithNo);
         m_titleWithNo->setChecked(s.value(QStringLiteral("titleWithNo"), true).toBool());
+    }
+    {
+        const QByteArray geo = s.value(QStringLiteral("geometry")).toByteArray();
+        if (!geo.isEmpty())
+            restoreGeometry(geo);
+        const QByteArray sp = s.value(QStringLiteral("splitter")).toByteArray();
+        if (m_split && !sp.isEmpty())
+            m_split->restoreState(sp);
     }
     s.endGroup();
 
