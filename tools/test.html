@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>site.js 逻辑自测</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; font-size: 15px; }
+  button { padding: 8px 18px; font-size: 14px; margin: 4px; }
+  input { height: 30px; width: 200px; font-size: 14px; }
+  .row { padding: 8px; }
+  #editor { min-height: 240px; width: 500px; border: 1px solid #ccc; margin: 8px; }
+  .modal { border: 2px solid #ddd; padding: 16px; margin: 12px; width: 520px; }
+  .vol-trigger { width: 220px; height: 36px; line-height: 36px; border: 1px solid #ccc; padding-left: 10px; }
+  .opt { width: 220px; height: 36px; line-height: 36px; padding-left: 10px; }
+  pre { background: #f5f5f5; padding: 10px; white-space: pre-wrap; }
+  #stage > * { display: block; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<pre id="out">running...</pre>
+<script src="../js/site.js"></script>
+<script>
+const results = [];
+function check(name, cond, extra) {
+  results.push((cond ? 'PASS' : 'FAIL') + ' | ' + name + (extra ? ' | ' + extra : ''));
+}
+function stage(html) { document.getElementById('stage').innerHTML = html; }
+function clicks(el) { return el ? (el.__n || 0) : 0; }
+function hook(sel, fn) {
+  const el = document.querySelector(sel);
+  if (el) { el.__n = 0; el.addEventListener('click', () => { el.__n++; if (fn) fn(el); }); }
+  return el;
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function run() {
+  /* ---------- A. 编辑页里的「暂无错别字」不能被当成弹窗 ---------- */
+  stage(`
+    <div class="row">第 <input placeholder="请输入章节号"> 章
+      <input placeholder="请输入标题"></div>
+    <div id="editor" contenteditable="true"></div>
+    <button id="saveDraft">存草稿</button>
+    <button id="next1">下一步</button>
+    <div>智能纠错 (0)</div><div>风险提示 (0)</div>
+    <div>暂无错别字</div><button id="recheck">重新检测</button>
+  `);
+  await sleep(60);
+  let d = __fq.typoDialog();
+  check('A1 编辑页「暂无错别字」不误判为弹窗', d.shown === false, JSON.stringify(d));
+  let c = __fq.correctState();
+  check('A2 编辑页右侧面板不误判为纠错页', c.shown === false, JSON.stringify(c));
+
+  /* ---------- B. 错别字弹窗 → autoStep 取消 ---------- */
+  stage(`
+    <div id="editor" contenteditable="true"></div>
+    <button id="next2">下一步</button>
+    <div class="modal">
+      <div>发布提示</div>
+      <div>检测到你还有错别字未修改，是否确定提交?</div>
+      <button id="cancelBtn">取消</button><button id="submitBtn">提交</button>
+    </div>
+  `);
+  await sleep(60);
+  hook('#cancelBtn');
+  d = __fq.typoDialog();
+  check('B1 识别错别字弹窗', d.shown === true && d.hasCancel === true, JSON.stringify(d));
+  let r = await __fq.autoStep();
+  check('B2 autoStep 选择取消', r.act === 'cancelTypo', JSON.stringify(r));
+  check('B3 取消按钮被点一次', clicks(document.querySelector('#cancelBtn')) === 1);
+
+  /* ---------- C. 智能纠错页 → 替换全部 + 下一步 ---------- */
+  stage(`
+    <div>智能纠错 (2)</div><div>风险提示 (0)</div>
+    <div class="row">冷 → 见</div><div class="row">划 → 画</div>
+    <button id="ignoreAll">忽略全部</button>
+    <button id="replaceAll">替换全部</button>
+    <button id="next3">下一步</button>
+  `);
+  await sleep(60);
+  hook('#replaceAll'); hook('#next3');
+  c = __fq.correctState();
+  check('C1 识别纠错页且可替换', c.shown === true && c.replaceable === true && c.corrections === 2,
+        JSON.stringify(c));
+  r = await __fq.autoStep();
+  check('C2 autoStep 执行替换+下一步', r.act === 'replaceNext', JSON.stringify(r));
+  check('C3 替换全部被点', clicks(document.querySelector('#replaceAll')) === 1);
+  check('C4 下一步被点', clicks(document.querySelector('#next3')) === 1);
+
+  /* ---------- D. 全面检测弹窗 ---------- */
+  stage(`
+    <div class="modal">
+      <div>请选择内容检测方式</div>
+      <div>全面检测（本章节剩余次数：2/2次）</div>
+      <div>将对章节内容进行深度排查，标注当前章节可能存在的风险内容</div>
+      <div>基础检测（不限次数）</div>
+      <button id="basicOnly">仅基础检测</button>
+      <button id="fullBtn">全面检测</button>
+    </div>
+  `);
+  await sleep(60);
+  hook('#fullBtn');
+  const det = __fq.detectDialog();
+  check('D1 识别内容检测弹窗', det.shown === true && det.full === true, JSON.stringify(det));
+  r = await __fq.autoStep();
+  check('D2 autoStep 点全面检测', r.act === 'fullDetect', JSON.stringify(r));
+  check('D3 全面检测按钮被点', clicks(document.querySelector('#fullBtn')) === 1);
+
+  /* ---------- E. 风险提示 → 中断信号 ---------- */
+  stage(`
+    <div>智能纠错 (0)</div><div>风险提示 (3)</div>
+    <button id="ignoreAll2">忽略全部</button><button id="replaceAll2">替换全部</button>
+  `);
+  await sleep(60);
+  c = __fq.correctState();
+  check('E1 解析风险条数', c.shown === true && c.risks === 3, JSON.stringify(c));
+  r = await __fq.autoStep();
+  check('E2 autoStep 报风险', r.act === 'risk' && r.risks === 3, JSON.stringify(r));
+
+  /* ---------- F. 发布设置 ---------- */
+  stage(`
+    <div class="modal">
+      <div>发布设置</div>
+      <div class="row"><span>分卷</span><span>第二卷：圣歌与暗金</span></div>
+      <div class="row ai"><span>是否使用AI</span>
+        <label><input type="radio" name="ai">是</label>
+        <label><input type="radio" name="ai" id="aiNo">否</label></div>
+      <div class="row sched"><span>定时发布</span><span role="switch" id="sw" aria-checked="false"></span></div>
+      <div class="row"><span>日期</span><input id="dateIn" placeholder="请选择日期"></div>
+      <div class="row"><span>时间</span><input id="timeIn" placeholder="请选择时间"></div>
+      <div class="row"><span>预告关键词</span><input id="kw" placeholder="（非必填）"></div>
+      <button id="cancelP">取消</button><button id="okP">确认发布</button>
+    </div>
+  `);
+  await sleep(60);
+  const ps = __fq.publishState();
+  check('F1 识别发布设置页', ps.shown === true && ps.confirm === true, JSON.stringify(ps));
+
+  const radios = document.querySelectorAll('input[type="radio"]');
+  let radioHit = 0;
+  radios.forEach((el, i) => el.addEventListener('click', () => { if (i === 1) radioHit++; }));
+  let swHit = 0;
+  document.querySelector('#sw').addEventListener('click', () => { swHit++; });
+
+  const set = await __fq.setPublish('2026-11-06', '19:05');
+  check('F2 勾选「否」', radioHit === 1, 'radioHit=' + radioHit);
+  check('F3 打开定时发布', swHit === 1, 'swHit=' + swHit);
+  check('F4 日期写入正确', document.querySelector('#dateIn').value === '2026-11-06',
+        document.querySelector('#dateIn').value);
+  check('F5 时间写入正确', document.querySelector('#timeIn').value === '19:05',
+        document.querySelector('#timeIn').value);
+  check('F6 回读校验通过', set.ok === true, JSON.stringify(set));
+
+  /* ---------- G. 存草稿 ---------- */
+  stage(`
+    <div>发布设置</div>
+    <button id="cancelG">取消</button>
+    <button id="saveG">存草稿</button>
+  `);
+  await sleep(60);
+  hook('#cancelG'); hook('#saveG');
+  const sd = await __fq.saveDraft();
+  check('G1 存草稿成功', sd.ok === true, JSON.stringify(sd));
+  check('G2 存草稿按钮被点', clicks(document.querySelector('#saveG')) === 1);
+
+  /* ---------- H. 选卷 ---------- */
+  stage(`<div class="vol-trigger" id="volT">第二卷：圣歌与暗金</div>`);
+  await sleep(60);
+  let volOpened = false;
+  document.querySelector('#volT').addEventListener('click', () => {
+    if (volOpened) return;
+    volOpened = true;
+    const box = document.createElement('div');
+    box.id = 'volMenu';
+    box.innerHTML = `<div class="opt">第二卷：圣歌与暗金</div><div class="opt" id="vol1">第一卷：铁誓之约</div>`;
+    document.getElementById('stage').appendChild(box);
+  });
+  let pickedText = '';
+  const pv = await __fq.pickVolume('第一卷：铁誓之约');
+  await sleep(80);
+  const opt1 = document.querySelector('#vol1');
+  check('H1 打开下拉并选中目标卷', pv.ok === true && pv.picked === '第一卷：铁誓之约', JSON.stringify(pv));
+  check('H2 选项确实存在于下拉里', !!opt1);
+  check('H3 不会把外层容器当成选项', (pv.options || []).every(o => o === '第一卷：铁誓之约' || o === '第二卷：圣歌与暗金'), JSON.stringify(pv.options));
+
+  /* ---------- K. 章节管理页 stage 判定 ---------- */
+  stage(`
+    <div class="row"><span>第二卷：圣歌与暗金</span></div>
+    <button id="newCh">新建章节</button>
+    <div class="row">第25章 25矿道</div>
+  `);
+  await sleep(60);
+  const sg = __fq.stage();
+  check('K1 识别章节管理页', sg.manage === true && sg.newChapter === true && sg.editor === false,
+        JSON.stringify(sg));
+
+  /* ---------- L. 书籍列表页不能被当成章节管理页 ---------- */
+  stage(`
+    <div class="card">
+      <div style="font-size:18px;font-weight:600">佣兵2：铁誓之约</div>
+      <div class="row">175 章 · 39.0 万字 · 连载中 · 已签约</div>
+      <button>作品相关</button><button>章节管理</button><button>创建章节</button>
+    </div>
+  `);
+  await sleep(60);
+  const sb = __fq.stage();
+  check('L1 书籍页不误判为管理页', sb.manage === false, JSON.stringify(sb));
+  const bk = __fq.books();
+  check('L2 能读出书名', bk.indexOf('佣兵2：铁誓之约') >= 0, JSON.stringify(bk));
+
+  /* ---------- I. 填章号/标题 ---------- */
+  stage(`
+    <div class="row">第 <input placeholder="请输入章节号" id="noIn"> 章
+      <input placeholder="请输入标题" id="tiIn"></div>
+    <div id="editor" contenteditable="true"></div>
+  `);
+  await sleep(60);
+  const fc = __fq.fillChapter(26, '26骸骨');
+  check('I1 章号写入', document.querySelector('#noIn').value === '26',
+        document.querySelector('#noIn').value);
+  check('I2 标题写入', document.querySelector('#tiIn').value === '26骸骨',
+        document.querySelector('#tiIn').value);
+  check('I3 填充结果自洽', fc.ok === true && fc.title === '26骸骨', JSON.stringify(fc));
+
+  /* ---------- J. 正文写入（含换行与缩进） ---------- */
+  const bodyText = '　　矿场在圣域地下，要走一炷香。\n　　她低声念着。\n\n　　“第三条岔路往左。”';
+  const fb = await __fq.fillBody(bodyText);
+  const norm = (s) => s.replace(/[\s\u3000\u00a0]/g, '');
+  const want = norm(bodyText).length;
+  check('J1 正文写入字数达标', fb.ok === true && fb.chars >= want * 0.9,
+        JSON.stringify(fb) + ' want=' + want);
+  const st = __fq.bodyState();
+  check('J2 bodyState 能读回字数', st.chars >= want * 0.9, 'chars=' + st.chars);
+
+  /* ---------- M. 「下一步」不可点时不硬点 ---------- */
+  stage(`
+    <div id="editor" contenteditable="true"></div>
+    <button id="nextDis" disabled>下一步</button>
+  `);
+  await sleep(60);
+  const nx = __fq.next();
+  check('M1 跳过 disabled 的「下一步」', nx.ok === false, JSON.stringify(nx));
+
+  /* ---------- N. AI 选项用自定义 div 时的兜底 ---------- */
+  stage(`
+    <div class="modal">
+      <div>发布设置</div>
+      <div class="row"><span>是否使用AI</span>
+        <span class="rd">是</span><span class="rd" id="noDiv">否</span></div>
+      <div class="row sched"><span>定时发布</span><span role="switch" id="sw2" aria-checked="false"></span></div>
+      <div class="row"><span>日期</span><input id="d2" placeholder="请选择日期"></div>
+      <div class="row"><span>时间</span><input id="t2" placeholder="请选择时间"></div>
+      <button>确认发布</button>
+    </div>
+  `);
+  await sleep(60);
+  let divHit = 0;
+  document.querySelector('#noDiv').addEventListener('click', () => { divHit++; });
+  let sw2Hit = 0;
+  document.querySelector('#sw2').addEventListener('click', () => { sw2Hit++; });
+  const set2 = await __fq.setPublish('2026-11-07', '19:10');
+  check('N1 自定义「否」也能点中', divHit === 1, 'divHit=' + divHit);
+  check('N2 自定义开关能打开', sw2Hit === 1, 'sw2Hit=' + sw2Hit);
+  check('N3 日期时间写入并校验', set2.ok === true, JSON.stringify(set2));
+
+  const fails = results.filter(x => x.startsWith('FAIL'));
+  document.getElementById('out').textContent =
+    results.join('\n') + '\n\n合计 ' + results.length + ' 项，失败 ' + fails.length + ' 项';
+  document.title = fails.length ? 'FAIL' : 'PASS';
+}
+
+run().catch(e => {
+  document.getElementById('out').textContent = 'EXCEPTION: ' + (e && e.stack || e);
+  document.title = 'FAIL';
+});
+</script>
+</body>
+</html>

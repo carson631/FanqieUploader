@@ -1,0 +1,11 @@
+build/
+build-*/
+dist/
+dist-archive/
+_t_chapters/
+_zipcheck/
+_ui*.png
+_dist*.png
+tools/_edgeprof/
+*.user
+.qtcreator/

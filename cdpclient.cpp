@@ -1,0 +1,216 @@
+#include "cdpclient.h"
+
+#include <QJsonDocument>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QTimer>
+#include <QUrl>
+
+CdpClient::CdpClient(QObject *parent)
+    : QObject(parent)
+{
+    connect(&m_ws, &QWebSocket::connected, this, [this]() {
+        log(QStringLiteral("调试通道已连接"));
+    });
+    connect(&m_ws, &QWebSocket::disconnected, this, [this]() {
+        failPending(QStringLiteral("调试连接已断开"));
+        emit disconnected();
+    });
+    connect(&m_ws, &QWebSocket::textMessageReceived, this, &CdpClient::handleMessage);
+    connect(&m_ws, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
+        emit failed(QStringLiteral("WebSocket 错误：%1").arg(m_ws.errorString()));
+    });
+}
+
+void CdpClient::scan(const TargetFilter &filter,
+                     std::function<void(bool, const QJsonObject &, const QString &)> cb)
+{
+    QUrl url(QStringLiteral("http://127.0.0.1:%1/json/list").arg(m_port));
+    QNetworkRequest req(url);
+    req.setTransferTimeout(4000);
+    QNetworkReply *reply = m_net.get(req);
+
+    connect(reply, &QNetworkReply::finished, this, [reply, filter, cb]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            cb(false, QJsonObject(),
+               QStringLiteral("连不上调试端口：%1（浏览器没带 --remote-debugging-port 启动？）")
+                   .arg(reply->errorString()));
+            return;
+        }
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isArray()) {
+            cb(false, QJsonObject(), QStringLiteral("/json/list 返回的不是数组"));
+            return;
+        }
+        QJsonObject hit;
+        QStringList seen;
+        for (const QJsonValue &v : doc.array()) {
+            const QJsonObject o = v.toObject();
+            if (o.value(QStringLiteral("type")).toString() != QLatin1String("page"))
+                continue;
+            const QString u = o.value(QStringLiteral("url")).toString();
+            if (u.startsWith(QLatin1String("devtools")))
+                continue;
+            seen << u;
+            if (filter(u)) {
+                hit = o;
+                break;
+            }
+        }
+        if (hit.isEmpty()) {
+            cb(false, QJsonObject(),
+               QStringLiteral("没找到番茄页面（当前标签：%1）")
+                   .arg(seen.isEmpty() ? QStringLiteral("无") : seen.join(QStringLiteral(" | "))));
+            return;
+        }
+        cb(true, hit, QString());
+    });
+}
+
+void CdpClient::discoverAndConnect()
+{
+    if (isConnected()) {
+        m_ws.close();
+        return;
+    }
+    scan([](const QString &u) { return u.contains(QLatin1String("fanqienovel.com")); },
+         [this](bool ok, const QJsonObject &t, const QString &why) {
+             if (!ok) {
+                 emit failed(why);
+                 return;
+             }
+             connectToTarget(t);
+         });
+}
+
+void CdpClient::ensureTarget(const TargetFilter &filter,
+                             std::function<void(bool, const QString &)> cb)
+{
+    scan(filter, [this, cb](bool ok, const QJsonObject &t, const QString &why) {
+        if (!ok) {
+            cb(false, why);
+            return;
+        }
+        const QString url = t.value(QStringLiteral("url")).toString();
+        if (isConnected() && m_url == url) {
+            cb(true, QString());
+            return;
+        }
+        log(QStringLiteral("切换标签：%1").arg(url));
+        connectToTarget(t);
+        // 连接是异步的：等 400ms 后再判一次
+        QTimer::singleShot(500, this, [this, cb]() {
+            cb(isConnected(), isConnected() ? QString()
+                                            : QStringLiteral("切换到新标签失败"));
+        });
+    });
+}
+
+void CdpClient::connectToTarget(const QJsonObject &target)
+{
+    const QString wsUrl = target.value(QStringLiteral("webSocketDebuggerUrl")).toString();
+    if (wsUrl.isEmpty()) {
+        emit failed(QStringLiteral("target 没有 webSocketDebuggerUrl"));
+        return;
+    }
+    m_url = target.value(QStringLiteral("url")).toString();
+    log(QStringLiteral("目标页：%1").arg(m_url));
+    if (m_ws.state() != QAbstractSocket::UnconnectedState)
+        m_ws.abort();
+    m_ws.open(QUrl(wsUrl));
+
+    QTimer::singleShot(300, this, [this, target]() {
+        if (!isConnected())
+            return;
+        evaluate(QStringLiteral("1+1"), [this, target](bool ok, const QJsonValue &, const QString &e) {
+            if (!ok) {
+                emit failed(QStringLiteral("Runtime.evaluate 失败：%1").arg(e));
+                return;
+            }
+            emit connected(target.value(QStringLiteral("url")).toString(),
+                           target.value(QStringLiteral("title")).toString());
+        });
+    });
+}
+
+void CdpClient::close()
+{
+    if (m_ws.state() != QAbstractSocket::UnconnectedState)
+        m_ws.close();
+}
+
+void CdpClient::evaluate(const QString &js, EvalCallback cb, int timeoutMs)
+{
+    if (!isConnected()) {
+        cb(false, QJsonValue(), QStringLiteral("调试连接未建立"));
+        return;
+    }
+
+    const int id = m_nextId++;
+    m_pending.insert(id, cb);
+
+    QJsonObject params;
+    params.insert(QStringLiteral("expression"), js);
+    params.insert(QStringLiteral("returnByValue"), true);
+    params.insert(QStringLiteral("awaitPromise"), true);
+    params.insert(QStringLiteral("userGesture"), true);
+
+    QJsonObject msg;
+    msg.insert(QStringLiteral("id"), id);
+    msg.insert(QStringLiteral("method"), QStringLiteral("Runtime.evaluate"));
+    msg.insert(QStringLiteral("params"), params);
+
+    m_ws.sendTextMessage(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
+
+    QTimer::singleShot(timeoutMs, this, [this, id]() {
+        auto it = m_pending.find(id);
+        if (it == m_pending.end())
+            return;
+        const EvalCallback cb2 = it.value();
+        m_pending.erase(it);
+        cb2(false, QJsonValue(), QStringLiteral("JS 执行超时"));
+    });
+}
+
+void CdpClient::handleMessage(const QString &text)
+{
+    const QJsonObject msg = QJsonDocument::fromJson(text.toUtf8()).object();
+    const int id = msg.value(QStringLiteral("id")).toInt(-1);
+    if (id < 0)
+        return;
+
+    auto it = m_pending.find(id);
+    if (it == m_pending.end())
+        return;
+    const EvalCallback cb = it.value();
+    m_pending.erase(it);
+
+    if (msg.contains(QStringLiteral("error"))) {
+        cb(false, QJsonValue(), msg.value(QStringLiteral("error")).toObject()
+                                    .value(QStringLiteral("message")).toString());
+        return;
+    }
+
+    const QJsonObject result = msg.value(QStringLiteral("result")).toObject();
+    if (result.contains(QStringLiteral("exceptionDetails"))) {
+        const QJsonObject ex = result.value(QStringLiteral("exceptionDetails")).toObject();
+        QString detail = ex.value(QStringLiteral("text")).toString();
+        const QJsonObject eo = ex.value(QStringLiteral("exception")).toObject();
+        if (!eo.value(QStringLiteral("description")).toString().isEmpty())
+            detail += QStringLiteral(" · ") + eo.value(QStringLiteral("description")).toString();
+        cb(false, QJsonValue(), detail);
+        return;
+    }
+
+    cb(true, result.value(QStringLiteral("result")).toObject().value(QStringLiteral("value")),
+       QString());
+}
+
+void CdpClient::failPending(const QString &why)
+{
+    const auto callbacks = m_pending;
+    m_pending.clear();
+    for (const EvalCallback &cb : callbacks)
+        cb(false, QJsonValue(), why);
+}
